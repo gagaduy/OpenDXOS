@@ -1,0 +1,86 @@
+// SPDX-FileCopyrightText: 2026 OpenDX CompanyOS contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AgenticApiError, createAgenticApi } from "../api/agentic-api";
+
+const taskId = "00000000-0000-4000-8000-000000000001";
+
+afterEach(() => { vi.unstubAllGlobals(); });
+
+describe("Agentic task transition transport", () => {
+  it("posts authoritative versions to the ready and start staff routes", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(readyEnvelope()))
+      .mockResolvedValueOnce(response(startEnvelope()));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createAgenticApi("http://api.test", "staff-token");
+
+    await expect(api.readyTask(taskId, 1)).resolves.toMatchObject({ task: { state: "ready", version: 2 } });
+    await expect(api.startTask(taskId, 2, 1)).resolves.toMatchObject({ state: "received", workflowVersion: 1 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://api.test/v1/admin/agentic/tasks/${taskId}/ready`, expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedVersion: 1 }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://api.test/v1/admin/agentic/tasks/${taskId}/start`, expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedVersion: 2, workflowVersion: 1 }) }));
+  });
+
+  it("rejects a malformed workflow projection", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => response({ success: true, data: { state: "received" } })));
+
+    await expect(createAgenticApi("http://api.test", "staff-token").startTask(taskId, 2, 1))
+      .rejects.toEqual(expect.objectContaining<Partial<AgenticApiError>>({ code: "INVALID_RESPONSE" }));
+  });
+});
+
+describe("Command activity transport", () => {
+  it("accepts a source-verified historical cancellation without inventing an actor", async () => {
+    const evidence = {
+      id: "source:marketing_campaigns:campaign-1", department: "marketing", decision: "canceled",
+      resourceType: "marketing_campaign", resourceId: "campaign-1", summary: "Canceled campaign",
+      occurredAt: "2026-09-14T10:00:00.000Z", source: "business_history",
+      sourceTable: "marketing_campaigns", sourceId: "campaign-1",
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => response({ success: true, data: [evidence] })));
+    await expect(createAgenticApi("http://api.test", "staff-token").listCommandActivity()).resolves.toEqual([evidence]);
+  });
+  it("loads persisted events and records a decision with an idempotency key", async () => {
+    const event = commandActivityEvent();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ success: true, data: [event] }))
+      .mockResolvedValueOnce(response({ success: true, data: event }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createAgenticApi("http://api.test", "staff-token");
+
+    await expect(api.listCommandActivity()).resolves.toEqual([event]);
+    await expect(api.recordCommandActivity({
+      department: "support", decision: "approved", resourceType: "support_proposal",
+      resourceId: "support-8-tickets", summary: "Đã gửi phản hồi cho 8 khách hàng.",
+    }, "support:support-8-tickets:approved")).resolves.toEqual(event);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://api.test/v1/admin/agentic/activity-events?limit=30", expect.objectContaining({ signal: undefined }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://api.test/v1/admin/agentic/activity-events", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ "idempotency-key": "support:support-8-tickets:approved" }),
+    }));
+  });
+});
+
+function response(body: unknown) {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function readyEnvelope() {
+  return { success: true, data: { task: { id: taskId, state: "ready", createdBy: "operator-a", goal: "Review Store Health", version: 2, createdAt: "2026-08-25T00:00:00.000Z", updatedAt: "2026-08-25T00:00:01.000Z" }, subtasks: [], dependencies: [] } };
+}
+
+function startEnvelope() {
+  return { success: true, data: { id: "00000000-0000-4000-8000-000000000010", taskId, workflowName: "StoreHealthReviewWorkflowV1", workflowVersion: 1, planRevision: 1, temporalWorkflowId: "store-health-v1:00000000-0000-4000-8000-000000000010", state: "received", projectionSequence: 0, version: 1, createdAt: "2026-08-25T00:00:01.000Z", updatedAt: "2026-08-25T00:00:01.000Z" } };
+}
+
+function commandActivityEvent() {
+  return {
+    id: "00000000-0000-4000-8000-000000000020", actorId: "admin", department: "support" as const,
+    decision: "approved" as const, resourceType: "support_proposal" as const,
+    resourceId: "support-8-tickets", summary: "Đã gửi phản hồi cho 8 khách hàng.",
+    idempotencyKey: "support:support-8-tickets:approved", occurredAt: "2026-09-15T01:00:00.000Z",
+  };
+}

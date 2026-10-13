@@ -1,0 +1,109 @@
+// SPDX-FileCopyrightText: 2026 OpenDX CompanyOS contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { Router } from "express";
+import type { CatalogVariantReader } from "../catalog";
+import type { AgenticAnalyticsReader } from "../reporting";
+import { authenticateStaff, type StaffTokenVerifier } from "../../shared/auth/staff-auth.middleware";
+import type { TransactionRunner } from "../../shared/database/transaction";
+import { InventoryReservationService } from "./application/services/implementations/inventory-reservation.service";
+import { InventoryHealthReaderService } from "./application/services/implementations/inventory-health-reader";
+import { InventoryService } from "./application/services/implementations/inventory.service";
+import { PostgresqlInventoryAuditRepository } from "./infrastructure/repositories/implementations/postgresql-inventory-audit.repository";
+import { PostgresqlInventoryHealthRepository } from "./infrastructure/repositories/implementations/postgresql-inventory-health.repository";
+import { PostgresqlInventoryRepository } from "./infrastructure/repositories/implementations/postgresql-inventory.repository";
+import type { Pool } from "pg";
+import { ReservationExpiryWorker } from "./infrastructure/workers/reservation-expiry.worker";
+import { InventoryController } from "./presentation/controllers/inventory.controller";
+import { createInventoryRouter } from "./presentation/routes/inventory.routes";
+import { AiOperationsService } from "./application/services/implementations/ai-operations.service";
+import { PostgresqlInventoryReplenishmentRepository } from "./infrastructure/repositories/implementations/postgresql-inventory-replenishment.repository";
+import { AutonomousReplenishmentMonitorService } from "./application/services/implementations/autonomous-replenishment-monitor.service";
+
+export interface InventoryModuleDependencies {
+  readonly transactions: TransactionRunner;
+  readonly database?: Pool;
+  readonly variantReader: CatalogVariantReader;
+  readonly staffTokenVerifier: StaffTokenVerifier;
+  readonly generateId: () => string;
+  readonly now: () => string;
+  readonly reservationTtlMs: number;
+  readonly expiryIntervalMs: number;
+  readonly onWorkerError: (error: unknown) => void;
+}
+
+export interface InventoryHealthDependencies {
+  readonly transactions: TransactionRunner;
+  readonly analytics: AgenticAnalyticsReader;
+  readonly now: () => string;
+}
+
+export function createInventoryHealthReader(dependencies: InventoryHealthDependencies) {
+  return new InventoryHealthReaderService(
+    new PostgresqlInventoryHealthRepository(),
+    dependencies.analytics,
+    dependencies.transactions,
+    dependencies.now,
+  );
+}
+
+export function createInventoryModule(dependencies: InventoryModuleDependencies) {
+  const repository = new PostgresqlInventoryRepository();
+  const audit = new PostgresqlInventoryAuditRepository();
+  const service = new InventoryService(
+    repository,
+    dependencies.variantReader,
+    audit,
+    dependencies.transactions,
+    dependencies.generateId,
+    dependencies.now,
+  );
+  const reservations = new InventoryReservationService(
+    repository,
+    dependencies.variantReader,
+    audit,
+    dependencies.transactions,
+    dependencies.generateId,
+    dependencies.now,
+    dependencies.reservationTtlMs,
+  );
+  const replenishmentRepo = dependencies.database
+    ? new PostgresqlInventoryReplenishmentRepository(dependencies.database)
+    : undefined;
+  const aiOperations = dependencies.database
+    ? new AiOperationsService(dependencies.database, dependencies.now, dependencies.generateId, replenishmentRepo)
+    : undefined;
+  const replenishmentMonitor = (aiOperations && replenishmentRepo)
+    ? new AutonomousReplenishmentMonitorService(aiOperations, replenishmentRepo)
+    : undefined;
+  const appendDenied = async (denied: {
+    actorId: string; action: string; resourceId: string; correlationId: string;
+  }) => dependencies.transactions.run((session) => audit.append(session, {
+    id: dependencies.generateId(),
+    actorType: "staff",
+    actorId: denied.actorId,
+    action: denied.action,
+    resourceType: "inventory_item",
+    resourceId: denied.resourceId,
+    outcome: "denied",
+    correlationId: denied.correlationId,
+    metadata: {},
+    occurredAt: dependencies.now(),
+  }));
+  const router: Router = createInventoryRouter(
+    new InventoryController(service, aiOperations, replenishmentRepo, replenishmentMonitor),
+    authenticateStaff(dependencies.staffTokenVerifier),
+    appendDenied,
+  );
+  const expiryWorker = new ReservationExpiryWorker(
+    reservations,
+    {
+      actorType: "system",
+      actorId: "system:reservation-expiry",
+      correlationId: "reservation-expiry-worker",
+    },
+    dependencies.expiryIntervalMs,
+    dependencies.onWorkerError,
+  );
+  return { router, availability: service, reservations, expiryWorker, replenishmentMonitor, aiOperations };
+}

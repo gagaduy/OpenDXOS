@@ -1,0 +1,268 @@
+// SPDX-FileCopyrightText: 2026 OpenDX CompanyOS contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { randomUUID } from "node:crypto";
+import { generateKeyPair, jwtVerify, SignJWT } from "jose";
+import { Client } from "minio";
+import { Pool } from "pg";
+import request from "supertest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createApiApp } from "../../../app";
+import { runCatalogMigrations } from "../../../shared/database/run-migrations";
+import { PostgresTransactionRunner } from "../../../shared/database/transaction";
+import type { StaffTokenVerifier } from "../../../shared/auth/staff-auth.middleware";
+import { createCatalogModule } from "../catalog.module";
+import { FileTypeProductMediaInspector, MinioProductMediaStorage } from "../infrastructure/storage/minio-product-media.storage";
+import { bootstrapProductMediaBucket } from "../infrastructure/storage/bootstrap-product-media-bucket";
+import { MinioStorefrontHeroMediaStorage } from "../infrastructure/storage/minio-storefront-hero-media.storage";
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+const endpoint = process.env.MINIO_ENDPOINT;
+const accessKey = process.env.MINIO_ACCESS_KEY;
+const secretKey = process.env.MINIO_SECRET_KEY;
+const bucket = process.env.MINIO_BUCKET;
+const configured = [databaseUrl, endpoint, accessKey, secretKey, bucket].every(
+  (value) => value !== undefined,
+);
+const describeWithInfrastructure = configured ? describe : describe.skip;
+const issuer = "https://identity.example.test/realms/opendx";
+const audience = "opendx-api";
+const png = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
+
+describeWithInfrastructure("Catalog API composition", () => {
+  const pool = new Pool({ connectionString: databaseUrl });
+  const transactions = new PostgresTransactionRunner(pool);
+  const endpointUrl = new URL(endpoint!);
+  const minio = new Client({
+    endPoint: endpointUrl.hostname,
+    port: Number(endpointUrl.port || 80),
+    useSSL: endpointUrl.protocol === "https:",
+    accessKey: accessKey!,
+    secretKey: secretKey!,
+  });
+  let token: string;
+  let app: ReturnType<typeof createApiApp>;
+
+  beforeAll(async () => {
+    await runCatalogMigrations(databaseUrl!, "up");
+    await bootstrapProductMediaBucket(minio, bucket!);
+    const { privateKey, publicKey } = await generateKeyPair("RS256");
+    const verifier: StaffTokenVerifier = {
+      async verify(value) {
+        return (await jwtVerify(value, publicKey, { issuer, audience })).payload;
+      },
+    };
+    token = await new SignJWT({
+      name: "Catalog Manager",
+      realm_access: { roles: ["catalog_manager"] },
+    })
+      .setProtectedHeader({ alg: "RS256" })
+      .setSubject("user_catalog")
+      .setIssuer(issuer)
+      .setAudience(audience)
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(privateKey);
+    const catalog = createCatalogModule({
+        transactions,
+        mediaStorage: new MinioProductMediaStorage(minio, bucket!),
+        heroMediaStorage: new MinioStorefrontHeroMediaStorage(minio, bucket!),
+        mediaInspector: new FileTypeProductMediaInspector(),
+        staffTokenVerifier: verifier,
+        generateId: randomUUID,
+        now: () => "2026-08-05T00:00:00.000Z",
+        mediaMaximumBytes: 10 * 1024 * 1024,
+        availability: { getByVariantIds: async () => new Map() },
+      });
+    app = createApiApp({
+      catalogAdminRouter: catalog.adminRouter,
+      storefrontRouter: catalog.publicRouter,
+    });
+  });
+
+  afterAll(async () => {
+    const objects: string[] = [];
+    for await (const item of minio.listObjectsV2(bucket!, "", true)) {
+      if (item.name !== undefined) objects.push(item.name);
+    }
+    if (objects.length > 0) await minio.removeObjects(bucket!, objects);
+    if (await minio.bucketExists(bucket!)) await minio.removeBucket(bucket!);
+    await runCatalogMigrations(databaseUrl!, "down");
+    await pool.end();
+  });
+
+  it("executes category to product, variant, price, media, and audit through HTTP", async () => {
+    const auth = { authorization: `Bearer ${token}`, "x-correlation-id": "corr_catalog_flow" };
+    const category = await request(app)
+      .post("/v1/admin/catalog/categories")
+      .set(auth)
+      .send({ name: "Drinkware" })
+      .expect(201);
+    const product = await request(app)
+      .post("/v1/admin/catalog/products")
+      .set(auth)
+      .send({
+        categoryId: category.body.data.id,
+        name: "Steel Bottle",
+        description: "Reusable bottle",
+        attributes: { material: "steel" },
+      })
+      .expect(201);
+    const variant = await request(app)
+      .post(`/v1/admin/catalog/products/${product.body.data.id}/variants`)
+      .set(auth)
+      .send({ sku: "bottle-black", title: "Black", optionValues: { color: "Black" } })
+      .expect(201);
+    await request(app)
+      .put(`/v1/admin/catalog/products/${product.body.data.id}/variants/${variant.body.data.id}/price`)
+      .set(auth)
+      .send({ amountMinor: 299000, currency: "VND" })
+      .expect(200);
+    const media = await request(app)
+      .post(`/v1/admin/catalog/products/${product.body.data.id}/media`)
+      .set(auth)
+      .field("altText", "Bottle front")
+      .field("isPrimary", "true")
+      .attach("file", png, { filename: "bottle.png", contentType: "image/png" })
+      .expect(201);
+    const audit = await request(app)
+      .get(`/v1/admin/catalog/products/${product.body.data.id}/audit`)
+      .set(auth)
+      .expect(200);
+
+    expect(audit.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "catalog.product.created" }),
+      ]),
+    );
+    await pool.query("UPDATE products SET status = 'published' WHERE id = $1", [
+      product.body.data.id,
+    ]);
+    const publicProduct = await request(app)
+      .get(`/v1/storefront/products/${product.body.data.slug}`)
+      .expect(200);
+    expect(publicProduct.body.data.variants[0]).toMatchObject({
+      availableQuantity: 0,
+      purchasable: false,
+    });
+    await request(app)
+      .get(`/v1/storefront/products/${product.body.data.id}/media/${media.body.data.id}/content`)
+      .expect("content-type", /image\/png/)
+      .expect(200);
+    const serialized = JSON.stringify({
+      product: product.body,
+      publicProduct: publicProduct.body,
+      media: media.body,
+      audit: audit.body,
+    });
+    for (const forbidden of ["companyId", "object_key", "objectKey", "secretKey", "databaseUrl"]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("serves an active hero presentation and a bounded media byte range", async () => {
+    const fixtureIds = {
+      category: "e7100000-0000-4000-8000-000000000001",
+      product: "e7200000-0000-4000-8000-000000000001",
+      variant: "e7300000-0000-4000-8000-000000000001",
+      price: "e7400000-0000-4000-8000-000000000001",
+      media: "e7500000-0000-4000-8000-000000000001",
+      presentation: "e7600000-0000-4000-8000-000000000001",
+    };
+    const digest = "b".repeat(64);
+    const objectKey = `storefront/hero/${digest}.mp4`;
+    await pool.query(
+      `INSERT INTO categories
+        (id, name, slug, sort_order, status, created_at, updated_at, version)
+       VALUES ($1, 'Hero Phones', 'hero-phones', 0, 'active', NOW(), NOW(), 1)`,
+      [fixtureIds.category],
+    );
+    await pool.query(
+      `INSERT INTO products
+        (id, category_id, name, slug, description, attributes, status,
+         created_at, updated_at, version)
+       VALUES ($1, $2, 'Hero Phone', 'hero-phone', 'Hero phone', '{}',
+         'published', NOW(), NOW(), 1)`,
+      [fixtureIds.product, fixtureIds.category],
+    );
+    await pool.query(
+      `INSERT INTO product_variants
+        (id, product_id, sku, title, option_values, status,
+         created_at, updated_at, version)
+       VALUES ($1, $2, 'HERO-PHONE', 'Default', '{"color":"Black"}',
+         'active', NOW(), NOW(), 1)`,
+      [fixtureIds.variant, fixtureIds.product],
+    );
+    await pool.query(
+      `INSERT INTO product_prices
+        (id, variant_id, amount_minor, currency, tax_inclusive, valid_from,
+         created_by)
+       VALUES ($1, $2, 1000000, 'VND', true, NOW(), 'integration')`,
+      [fixtureIds.price, fixtureIds.variant],
+    );
+    await pool.query(
+      `INSERT INTO product_media
+        (id, product_id, object_key, content_type, byte_size, alt_text,
+         sort_order, is_primary, created_at)
+       VALUES ($1, $2, 'seed/hero-phone.png', 'image/png', 1,
+         'Hero Phone', 0, true, NOW())`,
+      [fixtureIds.media, fixtureIds.product],
+    );
+    await pool.query(
+      `INSERT INTO storefront_hero_presentations
+        (id, code, object_key, content_type, byte_size, duration_ms,
+         content_digest, enabled)
+       VALUES ($1, 'integration-hero', $2, 'video/mp4', 6, 4000, $3, true)`,
+      [fixtureIds.presentation, objectKey, digest],
+    );
+    await pool.query(
+      `INSERT INTO storefront_hero_chapters
+        (presentation_id, category_id, sort_order, start_ms, end_ms, label)
+       VALUES ($1, $2, 0, 0, 4000, 'Hero Phones')`,
+      [fixtureIds.presentation, fixtureIds.category],
+    );
+    await minio.putObject(
+      bucket!,
+      objectKey,
+      Buffer.from([1, 2, 3, 4, 5, 6]),
+      6,
+      { "Content-Type": "video/mp4" },
+    );
+
+    const presentation = await request(app)
+      .get("/v1/storefront/hero-presentation")
+      .expect(200);
+    expect(presentation.body.data).toMatchObject({
+      media: {
+        id: fixtureIds.presentation,
+        contentUrl: `/v1/storefront/hero-media/${fixtureIds.presentation}/content`,
+        byteSize: 6,
+      },
+      slides: [{ chapter: { startMs: 0, endMs: 4_000 } }],
+    });
+    expect(JSON.stringify(presentation.body)).not.toMatch(
+      /objectKey|contentDigest|createdAt|updatedAt/,
+    );
+
+    const range = await request(app)
+      .get(`/v1/storefront/hero-media/${fixtureIds.presentation}/content`)
+      .set("Range", "bytes=2-4")
+      .expect("cache-control", "no-store")
+      .expect("content-range", "bytes 2-4/6")
+      .expect("content-length", "3")
+      .expect(206);
+    expect(range.body).toEqual(Buffer.from([3, 4, 5]));
+
+    const head = await request(app)
+      .head(`/v1/storefront/hero-media/${fixtureIds.presentation}/content`)
+      .expect("accept-ranges", "bytes")
+      .expect("cache-control", "no-store")
+      .expect("content-type", /video\/mp4/)
+      .expect("content-length", "6")
+      .expect(200);
+    expect(head.body).toEqual({});
+  });
+});

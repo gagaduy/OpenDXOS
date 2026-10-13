@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 OpenDX CompanyOS contributors
+# SPDX-License-Identifier: Apache-2.0
+
+packages:
+  - "apps/*"
+  - "packages/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+minimumReleaseAgeExclude:
+  - lucide-react@1.28.0
+  - '@types/pg@8.20.4'

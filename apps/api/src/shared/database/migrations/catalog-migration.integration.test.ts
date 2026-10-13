@@ -1,0 +1,213 @@
+// SPDX-FileCopyrightText: 2026 OpenDX CompanyOS contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { Pool } from "pg";
+import { afterAll, describe, expect, it } from "vitest";
+import { runCatalogMigrations } from "../run-migrations";
+
+const databaseUrl = process.env.TEST_DATABASE_URL;
+const describeWithDatabase = databaseUrl === undefined ? describe.skip : describe;
+
+describeWithDatabase("catalog migration", () => {
+  const pool = new Pool({ connectionString: databaseUrl });
+  const tables = [
+    "categories",
+    "products",
+    "product_variants",
+    "product_prices",
+    "product_media",
+    "audit_events",
+    "storefront_service_assurances",
+    "storefront_trust_metrics",
+    "storefront_hero_presentations",
+    "storefront_hero_chapters",
+  ] as const;
+
+  afterAll(async () => {
+    await runCatalogMigrations(databaseUrl!, "down");
+    await pool.end();
+  });
+
+  it("reapplies health indexes and preserves publication rollback", async () => {
+    await runCatalogMigrations(databaseUrl!, "up");
+
+    const created = await pool.query<{ table_name: string }>(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[])
+       ORDER BY table_name`,
+      [tables],
+    );
+    expect(created.rows.map((row) => row.table_name)).toEqual(
+      [...tables].sort(),
+    );
+    await expect(indexNames(pool)).resolves.toEqual(expect.arrayContaining([
+      "products_health_status_updated_idx",
+      "product_variants_health_product_status_idx",
+      "product_prices_health_variant_window_idx",
+      "product_media_health_product_primary_idx",
+    ]));
+    await expect(
+      pool.query(`INSERT INTO storefront_service_assurances
+        (code, icon_key, title, description, sort_order, enabled, created_at, updated_at)
+       VALUES ('bad-icon', 'unknown', 'Title', 'Copy', 0, true, NOW(), NOW())`),
+    ).rejects.toThrow();
+    await expect(
+      pool.query(`INSERT INTO storefront_trust_metrics
+        (code, display_value, label, sort_order, enabled, created_at, updated_at)
+       VALUES ('bad-order', '1', 'Label', -1, true, NOW(), NOW())`),
+    ).rejects.toThrow();
+    await pool.query(
+      "TRUNCATE product_media,product_prices,product_variants,products,categories CASCADE",
+    );
+
+    await pool.query(
+      `INSERT INTO categories
+        (id, name, slug, sort_order, status, created_at, updated_at, version)
+       VALUES
+         ('81000000-0000-4000-8000-000000000001', 'Phones', 'phones', 0,
+          'active', NOW(), NOW(), 1),
+         ('81000000-0000-4000-8000-000000000002', 'Laptops', 'laptops', 1,
+          'active', NOW(), NOW(), 1)`,
+    );
+    await expect(
+      pool.query(`INSERT INTO storefront_hero_presentations
+        (id, code, object_key, content_type, byte_size, duration_ms,
+         content_digest, enabled)
+       VALUES ('83000000-0000-4000-8000-000000000099', 'invalid-duration',
+               'storefront/hero/${"c".repeat(64)}.mp4', 'video/mp4', 100, 0,
+               '${"c".repeat(64)}', false)`),
+    ).rejects.toThrow();
+    await pool.query(`INSERT INTO storefront_hero_presentations
+      (id, code, object_key, content_type, byte_size, duration_ms,
+       content_digest, enabled)
+     VALUES ('83000000-0000-4000-8000-000000000001', 'nova-signal',
+             'storefront/hero/${"a".repeat(64)}.mp4', 'video/mp4', 100, 24000,
+             '${"a".repeat(64)}', true)`);
+    await pool.query(`INSERT INTO storefront_hero_chapters
+      (presentation_id, category_id, sort_order, start_ms, end_ms, label)
+     VALUES ('83000000-0000-4000-8000-000000000001',
+             '81000000-0000-4000-8000-000000000001', 0, 0, 4000, 'Phone')`);
+    await expect(
+      pool.query(`INSERT INTO storefront_hero_chapters
+        (presentation_id, category_id, sort_order, start_ms, end_ms, label)
+       VALUES ('83000000-0000-4000-8000-000000000001',
+               '81000000-0000-4000-8000-000000000002', 1, 4000, 8000, '  ')`),
+    ).rejects.toThrow();
+    await expect(
+      pool.query(`INSERT INTO storefront_hero_chapters
+        (presentation_id, category_id, sort_order, start_ms, end_ms, label)
+       VALUES ('83000000-0000-4000-8000-000000000001',
+               '81000000-0000-4000-8000-000000000002', 0, 4000, 8000, 'Laptop')`),
+    ).rejects.toThrow();
+    await expect(
+      pool.query(`INSERT INTO storefront_hero_chapters
+        (presentation_id, category_id, sort_order, start_ms, end_ms, label)
+       VALUES ('83000000-0000-4000-8000-000000000001',
+               '81000000-0000-4000-8000-000000000002', 1, 3000, 5000, 'Laptop')`),
+    ).rejects.toThrow();
+    await expect(
+      pool.query(`INSERT INTO storefront_hero_chapters
+        (presentation_id, category_id, sort_order, start_ms, end_ms, label)
+       VALUES ('83000000-0000-4000-8000-000000000001',
+               '81000000-0000-4000-8000-000000000002', 1, 24000, 25000, 'Laptop')`),
+    ).rejects.toThrow();
+    await expect(
+      pool.query(`INSERT INTO storefront_hero_presentations
+        (id, code, object_key, content_type, byte_size, duration_ms,
+         content_digest, enabled)
+       VALUES ('83000000-0000-4000-8000-000000000002', 'second-enabled',
+               'storefront/hero/${"b".repeat(64)}.mp4', 'video/mp4', 200, 24000,
+               '${"b".repeat(64)}', true)`),
+    ).rejects.toThrow();
+    await pool.query(
+      `INSERT INTO products
+        (id, category_id, name, slug, description, status, created_at, updated_at, version)
+       VALUES ('82000000-0000-4000-8000-000000000001',
+               '81000000-0000-4000-8000-000000000001', 'Phone', 'phone',
+               'Technology phone', 'published', NOW(), NOW(), 1)`,
+    );
+    await pool.query("SET enable_seqscan=off");
+    const explain = await pool.query<{ "QUERY PLAN": unknown }>(
+      `EXPLAIN (FORMAT JSON)
+       SELECT id FROM products
+       WHERE status='draft' AND updated_at>=$1 AND updated_at<$2
+       ORDER BY updated_at,id LIMIT 26`,
+      ["2026-08-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z"],
+    );
+    await pool.query("RESET enable_seqscan");
+    expect(JSON.stringify(explain.rows[0]?.["QUERY PLAN"]))
+      .toContain("products_health_status_updated_idx");
+
+    await runCatalogMigrations(databaseUrl!, "down", 1);
+    const heroTables = await pool.query<{
+      presentation: string | null;
+      chapter: string | null;
+      assurance: string | null;
+      metric: string | null;
+    }>(
+      `SELECT
+         to_regclass('public.storefront_hero_presentations')::text AS presentation,
+         to_regclass('public.storefront_hero_chapters')::text AS chapter,
+         to_regclass('public.storefront_service_assurances')::text AS assurance,
+         to_regclass('public.storefront_trust_metrics')::text AS metric`,
+    );
+    expect(heroTables.rows[0]).toEqual({
+      presentation: null,
+      chapter: null,
+      assurance: "storefront_service_assurances",
+      metric: "storefront_trust_metrics",
+    });
+    await runCatalogMigrations(databaseUrl!, "up");
+
+    await runCatalogMigrations(databaseUrl!, "down", 2);
+    const contentTables = await pool.query<{ assurance: string | null; metric: string | null }>(
+      `SELECT to_regclass('public.storefront_service_assurances')::text AS assurance,
+              to_regclass('public.storefront_trust_metrics')::text AS metric`,
+    );
+    expect(contentTables.rows[0]).toEqual({ assurance: null, metric: null });
+    await expect(indexNames(pool)).resolves.toContain("products_health_status_updated_idx");
+    const preserved = await pool.query<{ status: string }>(
+      "SELECT status FROM products WHERE id = '82000000-0000-4000-8000-000000000001'",
+    );
+    expect(preserved.rows[0]).toEqual({ status: "published" });
+
+    await runCatalogMigrations(databaseUrl!, "up");
+    const reapplied = await pool.query<{ assurance: string | null; metric: string | null }>(
+      `SELECT to_regclass('public.storefront_service_assurances')::text AS assurance,
+              to_regclass('public.storefront_trust_metrics')::text AS metric`,
+    );
+    expect(reapplied.rows[0]).toEqual({
+      assurance: "storefront_service_assurances",
+      metric: "storefront_trust_metrics",
+    });
+
+    await runCatalogMigrations(databaseUrl!, "down", 3);
+    await expect(indexNames(pool)).resolves.not.toContain("products_health_status_updated_idx");
+    const product = await pool.query<{ status: string }>(
+      "SELECT status FROM products WHERE id = '82000000-0000-4000-8000-000000000001'",
+    );
+    expect(product.rows[0]).toEqual({ status: "published" });
+
+    await runCatalogMigrations(databaseUrl!, "up");
+    await expect(indexNames(pool)).resolves.toContain("products_health_status_updated_idx");
+
+    await runCatalogMigrations(databaseUrl!, "down", 4);
+    const draft = await pool.query<{ status: string }>(
+      "SELECT status FROM products WHERE id = '82000000-0000-4000-8000-000000000001'",
+    );
+    expect(draft.rows[0]).toEqual({ status: "draft" });
+
+    await runCatalogMigrations(databaseUrl!, "up");
+    await expect(indexNames(pool)).resolves.toContain("products_health_status_updated_idx");
+  });
+});
+
+async function indexNames(pool: Pool): Promise<readonly string[]> {
+  const result = await pool.query<{ indexname: string }>(
+    `SELECT indexname FROM pg_indexes
+     WHERE schemaname='public' AND indexname LIKE '%_health_%'
+     ORDER BY indexname`,
+  );
+  return result.rows.map(({ indexname }) => indexname);
+}

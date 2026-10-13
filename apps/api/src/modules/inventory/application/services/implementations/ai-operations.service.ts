@@ -1,0 +1,621 @@
+// SPDX-FileCopyrightText: 2026 OpenDX CompanyOS contributors
+// SPDX-License-Identifier: Apache-2.0
+
+import { randomUUID } from "node:crypto";
+import type { Pool } from "pg";
+import type {
+  ApplyOperationsRequestDto,
+  ApplyOperationsResultDto,
+  ApplyOperationsResultItemDto,
+  GenerateOperationsProposalRequestDto,
+  OperationsProposalDto,
+  OperationsProposalItemDto,
+  StockRiskClassification,
+} from "../../dtos/ai-operations-response.dto";
+import { generateOperationsReportDocx } from "../../../infrastructure/generators/operations-report-docx.generator";
+import type {
+  ReplenishmentProposalDto,
+  ReplenishmentProposalItemDto,
+  ReplenishmentTriggerSource,
+} from "../../dtos/inventory-replenishment.dto";
+import type { InventoryReplenishmentRepositoryContract } from "../../repositories/interfaces/inventory-replenishment.repository";
+
+interface InventoryDbSnapshot {
+  readonly variantId: string;
+  readonly productId: string;
+  readonly productName: string;
+  readonly productSlug: string;
+  readonly sku: string;
+  readonly categoryName: string;
+  readonly onHand: number;
+  readonly reserved: number;
+  readonly priceMinor: number;
+}
+
+interface InventoryVelocityDbSnapshot extends InventoryDbSnapshot {
+  readonly recentUnitsSold7d: number;
+}
+
+export class AiOperationsService {
+  private readonly proposalsCache = new Map<string, OperationsProposalDto>();
+
+  constructor(
+    private readonly database: Pool,
+    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly generateId: () => string = randomUUID,
+    private readonly replenishmentRepo?: InventoryReplenishmentRepositoryContract,
+  ) {}
+
+  async generateOperationsProposal(
+    request: GenerateOperationsProposalRequestDto,
+  ): Promise<OperationsProposalDto> {
+    // 1. Query live inventory, variants, products, and prices from PostgreSQL
+    const { rows } = await this.database.query<InventoryDbSnapshot>(`
+      SELECT
+        pv.id AS "variantId",
+        p.id AS "productId",
+        CASE
+          WHEN pv.title IS NOT NULL AND pv.title != '' AND pv.title != 'Default'
+          THEN p.name || ' (' || pv.title || ')'
+          ELSE p.name
+        END AS "productName",
+        p.slug AS "productSlug",
+        pv.sku AS "sku",
+        COALESCE(c.name, 'Linh kiện & Phụ kiện') AS "categoryName",
+        COALESCE(ii.on_hand, 0) AS "onHand",
+        COALESCE(ii.reserved, 0) AS "reserved",
+        COALESCE(pp.amount_minor, 1000000) AS "priceMinor"
+      FROM product_variants pv
+      JOIN products p ON p.id = pv.product_id
+      LEFT JOIN categories c ON c.id = p.category_id
+      LEFT JOIN inventory_items ii ON ii.variant_id = pv.id
+      LEFT JOIN product_prices pp ON pp.variant_id = pv.id AND pp.valid_to IS NULL
+      WHERE pv.status = 'active' AND p.status = 'published'
+      ORDER BY p.id, pv.id;
+    `);
+
+    let rawAiResult: {
+      inventoryHealthSummary?: string;
+      riskAssessment?: string;
+      recommendedAction?: string;
+      items?: Array<{
+        sku?: string;
+        variantId?: string;
+        productName?: string;
+        stockStatus?: StockRiskClassification;
+        safetyStockThreshold?: number;
+        recommendedRestockQuantity?: number;
+        estimatedUnitCostVnd?: number;
+        actionRationale?: string;
+      }>;
+    } | null = null;
+
+    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+    if (apiKey && process.env.OPENROUTER_EXECUTION_ENABLED === "true") {
+      try {
+        const inventoryContext = rows
+          .map(
+            (r) =>
+              `- SKU: "${r.sku}" | Sản phẩm: "${r.productName}" | Tồn kho (On-hand): ${r.onHand} | Đang giữ chỗ: ${r.reserved} | Khả dụng: ${r.onHand - r.reserved} | Giá bán: ${r.priceMinor.toLocaleString("vi-VN")} VND`,
+          )
+          .join("\n");
+
+        const systemPrompt = `Bạn là Giám đốc Vận hành & Kỹ sư Trưởng Quản lý Kho vận (Chief Operating & Inventory Logistics Engineer) của NovaCommerce (OpenDX CompanyOS).
+Nhiệm vụ: Phân tích thực trạng dữ liệu kho hàng thực tế trong database theo chỉ đạo của Ban Giám đốc.
+
+Nguyên tắc tính toán nghiệp vụ:
+1. Tính Tồn khả dụng (Available) = Tồn thực tế (On-hand) - Tồn giữ chỗ (Reserved).
+2. Phân loại trạng thái kho (StockRiskClassification):
+   - "critical_low": Nếu Tồn khả dụng <= 5 (hoặc theo ngưỡng người dùng yêu cầu). Cần nhập khẩn cấp.
+   - "slow_moving": Nếu Tồn khả dụng >= 12, hoặc người dùng có chỉ đạo xả hàng, thanh lý tồn kho, xử lý hàng chậm luân chuyển.
+   - "balanced": Tồn kho mức an toàn ổn định.
+3. Dự toán chi phí nhập hàng (Unit Cost ước tính ~60% - 70% giá bán lẻ).
+4. Tính toán số lượng nhập bổ sung hợp lý dựa trên chỉ đạo cụ thể của người dùng.
+
+Dữ liệu kho hàng thực tế trong cơ sở dữ liệu PostgreSQL:
+${inventoryContext}
+
+Trả về DUY NHẤT một chuỗi JSON hợp lệ:
+{
+  "inventoryHealthSummary": "Tóm tắt tổng thể tình trạng kho bãi, tỷ lệ SKU sẵn sàng đáp ứng đơn",
+  "riskAssessment": "Phân tích các nút thắt rủi ro chuỗi cung ứng và cảnh báo nguy cơ đứt gãy",
+  "recommendedAction": "Kế hoạch hành động cụ thể cho đội ngũ kho bãi và kế toán kho",
+  "items": [
+    {
+      "sku": "Mã SKU chính xác trong bảng",
+      "stockStatus": "critical_low | balanced | slow_moving",
+      "safetyStockThreshold": 10,
+      "recommendedRestockQuantity": số_lượng_nhập_thêm_đề_xuất,
+      "estimatedUnitCostVnd": giá_vốn_ước_tính_1_đơn_vị,
+      "actionRationale": "Lý do nhập hoặc điều phối cho SKU này"
+    }
+  ]
+}`;
+
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://opendx.vn",
+            "X-Title": "OpenDX CompanyOS AI Operations & Inventory",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `Yêu cầu chỉ đạo của Ban Giám đốc: ${request.prompt}` },
+            ],
+            temperature: 0.2,
+          }),
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          const content = data.choices?.[0]?.message?.content?.trim();
+          if (content) {
+            const cleanJson = content.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+            rawAiResult = JSON.parse(cleanJson);
+          }
+        }
+      } catch (err) {
+        console.error("OpenRouter operations proposal generation failed:", err);
+      }
+    }
+
+    // 2. Build items from AI response or smart matching
+    const items: OperationsProposalItemDto[] = [];
+    const promptLower = request.prompt.toLowerCase();
+
+    // Check if user requested a specific restock quantity (e.g. "nhập 20 cái", "nhập thêm 30 chiếc", "bổ sung 50")
+    const qtyMatch = request.prompt.match(/(?:nhập|bổ sung|thêm)\s*(?:thêm)?\s*(\d+)\s*(?:cái|chiếc|đơn vị|sản phẩm)?/i);
+    const explicitRestockQty = qtyMatch && qtyMatch[1] ? parseInt(qtyMatch[1], 10) : undefined;
+
+    // Filter relevant rows if user specified a category or product
+    const relevantRows = rows.filter((r) => {
+      if (promptLower.includes("laptop") && r.productSlug.includes("laptop")) return true;
+      if (promptLower.includes("chuột") && r.productSlug.includes("mouse")) return true;
+      if (promptLower.includes("bàn phím") && r.productSlug.includes("keyboard")) return true;
+      if (promptLower.includes("tai nghe") && r.productSlug.includes("headphones")) return true;
+      if (promptLower.includes("điện thoại") && r.productSlug.includes("phone")) return true;
+      if (promptLower.includes("đồng hồ") && r.productSlug.includes("watch")) return true;
+      if (promptLower.includes("tablet") && r.productSlug.includes("tablet")) return true;
+      if (promptLower.includes("linh kiện") || promptLower.includes("phụ kiện")) {
+        return (
+          r.productSlug.includes("mouse") ||
+          r.productSlug.includes("keyboard") ||
+          r.productSlug.includes("hub") ||
+          r.productSlug.includes("drive") ||
+          r.productSlug.includes("card")
+        );
+      }
+      return true; // Default: include all active items
+    });
+
+    const targetRows = relevantRows.length > 0 ? relevantRows : rows;
+
+    for (const row of targetRows) {
+      const aiMatch = rawAiResult?.items?.find(
+        (it) => it.sku === row.sku || (it.variantId && it.variantId === row.variantId),
+      );
+
+      const available = Math.max(0, row.onHand - row.reserved);
+      const isClearanceIntent =
+        promptLower.includes("xả") ||
+        promptLower.includes("thanh lý") ||
+        promptLower.includes("tồn đọng") ||
+        promptLower.includes("chậm") ||
+        promptLower.includes("luân chuyển") ||
+        promptLower.includes("ứ đọng");
+
+      const defaultStatus: StockRiskClassification =
+        available <= 5
+          ? "critical_low"
+          : isClearanceIntent
+            ? (available >= 10 ? "slow_moving" : "balanced")
+            : (available >= 20 ? "slow_moving" : "balanced");
+
+      const stockStatus: StockRiskClassification =
+        aiMatch?.stockStatus || defaultStatus;
+
+      const threshold = aiMatch?.safetyStockThreshold || 10;
+      let restockQty = 0;
+      if (explicitRestockQty !== undefined) {
+        restockQty = (stockStatus === "critical_low" || available < threshold) ? explicitRestockQty : 0;
+      } else if (stockStatus === "critical_low" || available < threshold) {
+        restockQty =
+          aiMatch?.recommendedRestockQuantity !== undefined && Number(aiMatch.recommendedRestockQuantity) > 0
+            ? Number(aiMatch.recommendedRestockQuantity)
+            : Math.max(10, threshold * 2 - available);
+      } else {
+        restockQty = 0;
+      }
+
+      // If user explicitly prompted to restock and matched specific items
+      if (explicitRestockQty !== undefined && restockQty === 0 && relevantRows.length <= 4 && promptLower.includes("nhập")) {
+        restockQty = explicitRestockQty;
+      }
+
+      const unitCost = Math.round(row.priceMinor * 0.65);
+      const totalCost = restockQty * unitCost;
+
+      const rationale =
+        aiMatch?.actionRationale ||
+        (stockStatus === "critical_low"
+          ? `Tồn khả dụng chỉ còn ${available} chiếc (dưới mức an toàn ${threshold}). Nguy cơ thiếu hàng cao khi có đơn lớn.`
+          : stockStatus === "slow_moving"
+            ? `Tồn khả dụng ${available} chiếc. Tốc độ luân chuyển chậm, không cần nhập thêm lúc này.`
+            : `Tồn kho ổn định (${available} chiếc). Duy trì lượng tồn an toàn định kỳ.`);
+
+      items.push({
+        variantId: row.variantId,
+        productId: row.productId,
+        productName: row.productName,
+        productSlug: row.productSlug,
+        sku: row.sku,
+        currentOnHand: row.onHand,
+        currentReserved: row.reserved,
+        availableQuantity: available,
+        safetyStockThreshold: threshold,
+        stockStatus,
+        recommendedRestockQuantity: restockQty,
+        estimatedUnitCostVnd: unitCost,
+        estimatedTotalCostVnd: totalCost,
+        actionRationale: rationale,
+      });
+    }
+
+    const proposalId = this.generateId();
+    const totalRestockUnits = items.reduce((acc, it) => acc + it.recommendedRestockQuantity, 0);
+    const totalEstimatedBudgetVnd = items.reduce((acc, it) => acc + it.estimatedTotalCostVnd, 0);
+
+    const inventoryHealthSummary =
+      rawAiResult?.inventoryHealthSummary ||
+      `Đã rà soát ${items.length} SKU sản phẩm trong kho. Phát hiện ${items.filter((i) => i.stockStatus === "critical_low").length} SKU có nguy cơ thiếu hàng cần nhập bổ sung khẩn cấp.`;
+
+    const riskAssessment =
+      rawAiResult?.riskAssessment ||
+      "Chuỗi cung ứng đối mặt với nguy cơ cạn kiệt cục bộ tại một số mã sản phẩm chủ lực. Cần bổ sung tồn kho an toàn để tránh bỏ lỡ các đợt tăng trưởng đơn hàng đột biến.";
+
+    const recommendedAction =
+      rawAiResult?.recommendedAction ||
+      `Ban Giám đốc phê duyệt phiếu nhập bổ sung ${totalRestockUnits} đơn vị hàng với tổng ngân sách dự kiến ${totalEstimatedBudgetVnd.toLocaleString("vi-VN")} VND.`;
+
+    const proposal: OperationsProposalDto = {
+      id: proposalId,
+      prompt: request.prompt,
+      items,
+      totalItems: items.length,
+      totalRestockUnits,
+      totalEstimatedBudgetVnd,
+      inventoryHealthSummary,
+      riskAssessment,
+      recommendedAction,
+      status: "pending_approval",
+      createdAt: this.now(),
+      docxFilename: `bao_cao_kiem_toan_kho_van_${proposalId.slice(0, 8)}.docx`,
+    };
+
+    this.proposalsCache.set(proposalId, proposal);
+    return proposal;
+  }
+
+  getProposal(proposalId: string): OperationsProposalDto | undefined {
+    return this.proposalsCache.get(proposalId);
+  }
+
+  async getProposalDocx(proposalId: string): Promise<{
+    buffer: Buffer;
+    filename: string;
+    mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }> {
+    let proposal = this.proposalsCache.get(proposalId);
+    if (!proposal) {
+      proposal = await this.generateOperationsProposal({
+        prompt: "Báo cáo kiểm toán kho bãi định kỳ và đề xuất nhập hàng cho NovaCommerce",
+      });
+      (proposal as any).id = proposalId;
+      this.proposalsCache.set(proposalId, proposal);
+    }
+    return generateOperationsReportDocx(proposal);
+  }
+
+  async applyOperationsProposal(
+    proposalId: string,
+    request: ApplyOperationsRequestDto,
+  ): Promise<ApplyOperationsResultDto> {
+    const proposal = this.proposalsCache.get(proposalId);
+    const updatedItems: ApplyOperationsResultItemDto[] = [];
+
+    const client = await this.database.connect();
+    try {
+      await client.query("BEGIN");
+
+      for (const item of request.items) {
+        if (item.restockQuantity <= 0) continue;
+
+        // Query variant details
+        const variantResult = await client.query<{ id: string; sku: string }>(
+          `SELECT id, sku FROM product_variants WHERE id = $1`,
+          [item.variantId],
+        );
+        const sku = variantResult.rows[0]?.sku ?? "SKU-UNKNOWN";
+
+        // Query and lock existing inventory item row
+        const invResult = await client.query<{ id: string; on_hand: number }>(
+          `SELECT id, on_hand FROM inventory_items WHERE variant_id = $1 FOR UPDATE`,
+          [item.variantId],
+        );
+
+        const current = invResult.rows[0];
+        const previousOnHand = current?.on_hand ?? 0;
+        const newOnHand = previousOnHand + item.restockQuantity;
+        let inventoryItemId = current?.id;
+
+        if (current?.id) {
+          // Update existing inventory item
+          await client.query(
+            `UPDATE inventory_items 
+             SET on_hand = $1, updated_at = NOW(), version = version + 1 
+             WHERE id = $2`,
+            [newOnHand, current.id],
+          );
+        } else {
+          // Create new inventory item
+          inventoryItemId = this.generateId();
+          await client.query(
+            `INSERT INTO inventory_items (id, variant_id, on_hand, reserved, version, created_at, updated_at) 
+             VALUES ($1, $2, $3, 0, 1, NOW(), NOW())`,
+            [inventoryItemId, item.variantId, newOnHand],
+          );
+        }
+
+        // Append to stock movements
+        const movementId = this.generateId();
+        const correlationId = randomUUID();
+        const idempotencyKey = randomUUID();
+        await client.query(
+          `INSERT INTO stock_movements (
+             id, inventory_item_id, on_hand_delta, reserved_delta, occurred_at, 
+             reason_code, reason_note, actor_type, actor_id, movement_type, correlation_id, idempotency_key
+           ) VALUES ($1, $2, $3, 0, NOW(), 'PO_APPROVAL', 'AI Operations Restock Approval', 'staff', 'staff-operations-ai', 'receive', $4, $5)`,
+          [movementId, inventoryItemId, item.restockQuantity, correlationId, idempotencyKey],
+        );
+
+        updatedItems.push({
+          variantId: item.variantId,
+          sku,
+          previousOnHand,
+          newOnHand,
+          addedQuantity: item.restockQuantity,
+        });
+      }
+
+      await client.query("COMMIT");
+
+      if (proposal) {
+        (proposal as any).status = "applied";
+        for (const up of updatedItems) {
+          const matched = proposal.items.find((it) => it.variantId === up.variantId);
+          if (matched) {
+            (matched as any).currentOnHand = up.newOnHand;
+            (matched as any).availableQuantity = Math.max(0, up.newOnHand - matched.currentReserved);
+          }
+        }
+      }
+
+      return {
+        proposalId,
+        appliedCount: updatedItems.length,
+        updatedItems,
+        appliedAt: this.now(),
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async generateReplenishmentAnalysis(options: {
+    triggerSource: ReplenishmentTriggerSource;
+    targetVariantIds?: string[];
+  }): Promise<ReplenishmentProposalDto | null> {
+    const { rows } = await this.database.query<InventoryVelocityDbSnapshot>(`
+      SELECT
+        pv.id AS "variantId",
+        p.id AS "productId",
+        CASE
+          WHEN pv.title IS NOT NULL AND pv.title != '' AND pv.title != 'Default'
+          THEN p.name || ' (' || pv.title || ')'
+          ELSE p.name
+        END AS "productName",
+        p.slug AS "productSlug",
+        pv.sku AS "sku",
+        COALESCE(c.name, 'Linh kiện & Phụ kiện') AS "categoryName",
+        COALESCE(ii.on_hand, 0) AS "onHand",
+        COALESCE(ii.reserved, 0) AS "reserved",
+        COALESCE(pp.amount_minor, 1000000) AS "priceMinor",
+        COALESCE(sales.units_sold_7d, 0) AS "recentUnitsSold7d"
+      FROM product_variants pv
+      JOIN products p ON p.id = pv.product_id
+      LEFT JOIN categories c ON c.id = p.category_id
+      LEFT JOIN inventory_items ii ON ii.variant_id = pv.id
+      LEFT JOIN product_prices pp ON pp.variant_id = pv.id AND pp.valid_to IS NULL
+      LEFT JOIN (
+        SELECT ol.variant_id, SUM(ol.quantity)::integer AS units_sold_7d
+        FROM order_lines ol
+        JOIN orders o ON o.id = ol.order_id
+        WHERE o.status IN ('paid', 'processing', 'ready_for_fulfillment', 'completed')
+          AND o.created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY ol.variant_id
+      ) sales ON sales.variant_id = pv.id
+      WHERE pv.status = 'active' AND p.status = 'published'
+      ORDER BY p.id, pv.id;
+    `);
+
+    // Filter target variants if specified
+    const candidateRows = options.targetVariantIds && options.targetVariantIds.length > 0
+      ? rows.filter((r) => options.targetVariantIds!.includes(r.variantId))
+      : rows;
+
+    // Filter critical items requiring replenishment
+    const criticalRows = candidateRows.filter((r) => {
+      const available = Math.max(0, r.onHand - r.reserved);
+      const threeDayConsumption = Math.ceil((Number(r.recentUnitsSold7d) / 7) * 3);
+      return available <= 5 || available <= threeDayConsumption;
+    });
+
+    if (criticalRows.length === 0) {
+      if (this.replenishmentRepo) {
+        const existingPending = await this.replenishmentRepo.findLatestPending();
+        if (existingPending) {
+          await this.replenishmentRepo.updateStatus(existingPending.id, "dismissed", "system:stock_replenished");
+        }
+      }
+      return null;
+    }
+
+    let rawAiResult: {
+      summary?: string;
+      riskAssessment?: string;
+      items?: Array<{
+        sku?: string;
+        recommendedRestockQuantity?: number;
+        actionRationale?: string;
+      }>;
+    } | null = null;
+
+    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+    if (apiKey && process.env.OPENROUTER_EXECUTION_ENABLED === "true") {
+      try {
+        const inventoryContext = criticalRows
+          .map(
+            (r) =>
+              `- SKU: "${r.sku}" | Sản phẩm: "${r.productName}" | Khả dụng: ${Math.max(0, r.onHand - r.reserved)} | Đã bán 7 ngày: ${r.recentUnitsSold7d} | Giá lẻ: ${r.priceMinor.toLocaleString("vi-VN")} VND`,
+          )
+          .join("\n");
+
+        const systemPrompt = `Bạn là Giám đốc Vận hành & Kỹ sư Trưởng Quản lý Kho vận của NovaCommerce (OpenDX CompanyOS).
+Nhiệm vụ: Phân tích thực trạng các SKU cạn kiệt hoặc tiêu thụ nhanh trong 7 ngày qua để đề xuất nhập hàng bổ sung cho 14 ngày tới.
+Dữ liệu kho:
+${inventoryContext}
+
+Trả về DUY NHẤT một chuỗi JSON hợp lệ:
+{
+  "summary": "Tóm tắt tình hình các SKU cạn kiệt",
+  "riskAssessment": "Đánh giá rủi ro thiếu hụt",
+  "items": [
+    {
+      "sku": "Mã SKU",
+      "recommendedRestockQuantity": 20,
+      "actionRationale": "Lý do nhập (nêu rõ số lượng bán 7 ngày và tồn còn lại)"
+    }
+  ]
+}`;
+
+        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://opendx.vn",
+            "X-Title": "OpenDX CompanyOS AI Operations & Inventory",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `Kích hoạt tự động do nguồn: ${options.triggerSource}. Hãy đề xuất lượng nhập kho an toàn.` },
+            ],
+            temperature: 0.2,
+          }),
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          const content = data.choices?.[0]?.message?.content?.trim();
+          if (content) {
+            const cleanJson = content.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+            rawAiResult = JSON.parse(cleanJson);
+          }
+        }
+      } catch (err) {
+        console.error("OpenRouter replenishment proposal generation failed, falling back to heuristic:", err);
+      }
+    }
+
+    const items: ReplenishmentProposalItemDto[] = [];
+    for (const row of criticalRows) {
+      const available = Math.max(0, row.onHand - row.reserved);
+      const unitsSold = Number(row.recentUnitsSold7d) || 0;
+      const dailyVelocity = Math.max(1, Math.round(unitsSold / 7));
+      const aiMatch = rawAiResult?.items?.find((it) => it.sku === row.sku);
+
+      const restockQty = aiMatch?.recommendedRestockQuantity && Number(aiMatch.recommendedRestockQuantity) > 0
+        ? Number(aiMatch.recommendedRestockQuantity)
+        : Math.max(10, Math.ceil(dailyVelocity * 14 - available));
+
+      const unitCost = Math.round(row.priceMinor * 0.65);
+      const lineCost = restockQty * unitCost;
+
+      const rationale = aiMatch?.actionRationale ||
+        `Đã bán ${unitsSold} sản phẩm trong 7 ngày qua, hiện còn ${available} chiếc khả dụng. Dự kiến cạn kho trong ${Math.max(1, Math.round(available / dailyVelocity))} ngày nếu không nhập bổ sung.`;
+
+      items.push({
+        sku: row.sku,
+        variantId: row.variantId,
+        productId: row.productId,
+        productName: row.productName,
+        categoryName: row.categoryName,
+        onHand: row.onHand,
+        reserved: row.reserved,
+        availableQuantity: available,
+        recentUnitsSold7d: unitsSold,
+        recommendedRestockQuantity: restockQty,
+        estimatedUnitCostVnd: unitCost,
+        estimatedLineCostVnd: lineCost,
+        actionRationale: rationale,
+      });
+    }
+
+    const proposalId = this.generateId();
+    const totalBudgetVnd = items.reduce((acc, it) => acc + it.estimatedLineCostVnd, 0);
+    const summary = rawAiResult?.summary ||
+      `Phát hiện ${items.length} mặt hàng có nguy cơ đứt gãy hàng do tồn khả dụng thấp hoặc tốc độ bán 7 ngày qua tăng nhanh.`;
+    const riskAssessment = rawAiResult?.riskAssessment ||
+      `Nguy cơ mất doanh thu và hủy đơn cao nếu không kịp thời nhập bổ sung lượng hàng dự phòng cho 14 ngày tới.`;
+
+    const proposal: ReplenishmentProposalDto = {
+      id: proposalId,
+      triggerSource: options.triggerSource,
+      status: "pending_review",
+      summary,
+      riskAssessment,
+      items,
+      totalBudgetVnd,
+      createdAt: this.now(),
+      updatedAt: this.now(),
+    };
+
+    if (this.replenishmentRepo) {
+      const existingPending = await this.replenishmentRepo.findLatestPending();
+      if (existingPending) {
+        await this.replenishmentRepo.updateStatus(existingPending.id, "dismissed", "system:superseded_by_latest_scan");
+      }
+      await this.replenishmentRepo.create({
+        id: proposal.id,
+        triggerSource: proposal.triggerSource,
+        status: proposal.status,
+        summary: proposal.summary,
+        riskAssessment: proposal.riskAssessment,
+        items: proposal.items,
+        totalBudgetVnd: proposal.totalBudgetVnd,
+      });
+    }
+
+    return proposal;
+  }
+}
+
