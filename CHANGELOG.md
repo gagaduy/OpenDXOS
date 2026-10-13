@@ -11,6 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+- OLP 2026 Interactive Presentation Slide Deck:
+  - Created standalone, high-performance interactive HTML slide deck (`docs/presentation/index.html` and `docs/slides.html`) featuring 14 comprehensive, polished presentation slides for Olympic Tin học Sinh viên Việt Nam (OLP) 2026 - Khối Phần mềm Nguồn mở (VFOSSA).
+  - Built-in live presentation features: keyboard navigation (Arrow keys, Spacebar, Enter, Home, End), progress tracking bar, slide overview thumbnail grid (press `O` or `Esc`), collapsible speaker notes drawer with tailored Vietnamese speech script for each slide (press `N`), fullscreen toggle (press `F`), and print/PDF-ready styling (`Ctrl+P`).
+
+
 - Marketing Multi-Channel Publication Status Synchronization & Workflow Notification Dispatch:
   - Fixed race condition in `deriveAggregatePublicationStatus` where an early platform failure (such as Instagram public media validation) prematurely marked the overall campaign as `partial_failure` while Facebook publishing was still pending or queued.
   - Ensured aggregate publication status remains in `publishing` until all scheduled and approved targets have reached terminal state, preventing premature completion notifications without verified social post URLs.

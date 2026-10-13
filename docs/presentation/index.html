@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenDXOS - Slide Thuyết trình OLP 2026 | Phần mềm Nguồn mở</title>
+  <meta name="description" content="Slide thuyết trình dự thi Olympic Tin học Sinh viên Việt Nam 2026 (OLP 2026) - Khối Phần mềm Nguồn mở (VFOSSA) cho dự án OpenDXOS.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-dark: #0a0f1d;
+      --bg-surface: #111827;
+      --bg-card: rgba(17, 24, 39, 0.75);
+      --bg-card-hover: rgba(31, 41, 55, 0.85);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(56, 189, 248, 0.35);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-faint: #6b7280;
+      
+      --cyan: #38bdf8;
+      --indigo: #818cf8;
+      --emerald: #34d399;
+      --amber: #fbbf24;
+      --pink: #f472b6;
+      --violet: #a78bfa;
+
+      --grad-primary: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+      --grad-amber: linear-gradient(135deg, #fbbf24 0%, #f97316 100%);
+      --grad-emerald: linear-gradient(135deg, #34d399 0%, #059669 100%);
+      --grad-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.8) 100%);
+
+      --slide-width: 1440px;
+      --slide-height: 900px;
+      --slide-aspect: 16 / 9;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Ambient Background Glow */
+    .ambient-glow {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 0;
+      background: 
+        radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(129, 140, 248, 0.12) 0%, transparent 45%),
+        radial-gradient(circle at 50% 50%, rgba(52, 211, 153, 0.05) 0%, transparent 60%);
+    }
+
+    /* Presentation Viewport */
+    .deck-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1;
+    }
+
+    /* Top Progress Bar */
+    .progress-bar-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      z-index: 100;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      width: 7.14%;
+      background: var(--grad-primary);
+      transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.7);
+    }
+
+    /* Slide Stage */
+    .slide-stage {
+      width: 94vw;
+      height: 86vh;
+      max-width: var(--slide-width);
+      max-height: var(--slide-height);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .slide {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: var(--grad-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 44px 56px;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.96) translateY(12px);
+      transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
+    }
+
+    .slide.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1) translateY(0);
+      z-index: 10;
+    }
+
+    /* Slide Header */
+    .slide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+      position: relative;
+    }
+    .slide-header-left {
+      flex: 1;
+    }
+    .category-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--cyan);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      margin-bottom: 8px;
+    }
+    .category-badge.gold {
+      background: rgba(251, 191, 36, 0.12);
+      color: var(--amber);
+      border-color: rgba(251, 191, 36, 0.3);
+    }
+    .category-badge.green {
+      background: rgba(52, 211, 153, 0.12);
+      color: var(--emerald);
+      border-color: rgba(52, 211, 153, 0.3);
+    }
+    .category-badge.purple {
+      background: rgba(167, 139, 250, 0.12);
+      color: var(--violet);
+      border-color: rgba(167, 139, 250, 0.3);
+    }
+
+    .slide-title {
+      font-size: 2.15rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .slide-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+    .slide-number-watermark {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 2.8rem;
+      font-weight: 800;
+      color: rgba(255, 255, 255, 0.06);
+      line-height: 1;
+    }
+
+    /* Slide Body Layouts */
+    .slide-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      height: 100%;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      height: 100%;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      height: 100%;
+    }
+
+    /* Feature Cards */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+    .card.highlight {
+      border-color: var(--border-accent);
+      background: linear-gradient(180deg, rgba(56, 189, 248, 0.08) 0%, rgba(17, 24, 39, 0.8) 100%);
+    }
+    .card.gold-border {
+      border-color: rgba(251, 191, 36, 0.35);
+      background: linear-gradient(180deg, rgba(251, 191, 36, 0.08) 0%, rgba(17, 24, 39, 0.8) 100%);
+    }
+    .card.green-border {
+      border-color: rgba(52, 211, 153, 0.35);
+      background: linear-gradient(180deg, rgba(52, 211, 153, 0.08) 0%, rgba(17, 24, 39, 0.8) 100%);
+    }
+
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.35rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--cyan);
+    }
+    .card-icon.gold { color: var(--amber); background: rgba(251, 191, 36, 0.1); }
+    .card-icon.green { color: var(--emerald); background: rgba(52, 211, 153, 0.1); }
+    .card-icon.purple { color: var(--violet); background: rgba(167, 139, 250, 0.1); }
+
+    .card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-desc {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .card-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.92rem;
+      color: #e5e7eb;
+    }
+    .card-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.45;
+    }
+    .card-list li::before {
+      content: "•";
+      color: var(--cyan);
+      font-weight: 800;
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+    .card-list.gold li::before { color: var(--amber); }
+    .card-list.green li::before { color: var(--emerald); }
+
+    /* Code & Tag Pills */
+    .pill {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--cyan);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Footer Banner in Slide */
+    .slide-footer-banner {
+      margin-top: 16px;
+      padding: 12px 20px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 10px;
+      border-left: 4px solid var(--cyan);
+      font-size: 0.92rem;
+      color: #d1d5db;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .slide-footer-banner.gold { border-left-color: var(--amber); }
+    .slide-footer-banner.green { border-left-color: var(--emerald); }
+
+    /* Bottom Control Bar */
+    .control-bar {
+      position: fixed;
+      bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(17, 24, 39, 0.85);
+      border: 1px solid var(--border-subtle);
+      border-radius: 9999px;
+      padding: 8px 18px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      z-index: 100;
+    }
+    .ctrl-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+    }
+    .ctrl-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ffffff;
+      transform: scale(1.08);
+    }
+    .slide-counter {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #f3f4f6;
+      padding: 0 8px;
+    }
+    .divider {
+      width: 1px;
+      height: 20px;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Speaker Notes Drawer */
+    .notes-drawer {
+      position: fixed;
+      bottom: 80px;
+      width: 90vw;
+      max-width: 960px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--border-accent);
+      border-radius: 16px;
+      padding: 20px 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(20px);
+      z-index: 90;
+      display: none;
+      animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .notes-drawer.open {
+      display: block;
+    }
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 8px;
+    }
+    .notes-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .notes-body {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #e2e8f0;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    /* Overview Modal Grid */
+    .overview-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 15, 29, 0.95);
+      backdrop-filter: blur(16px);
+      z-index: 200;
+      display: none;
+      flex-direction: column;
+      padding: 40px 60px;
+      overflow-y: auto;
+    }
+    .overview-modal.open {
+      display: flex;
+    }
+    .overview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .overview-thumb {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 18px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .overview-thumb:hover, .overview-thumb.current {
+      border-color: var(--cyan);
+      background: rgba(56, 189, 248, 0.08);
+      transform: translateY(-4px);
+    }
+    .overview-thumb-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--cyan);
+      font-weight: 700;
+    }
+    .overview-thumb-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.3;
+    }
+
+    /* Key Animation */
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        overflow: visible;
+        background: #000;
+      }
+      .ambient-glow, .progress-bar-container, .control-bar, .notes-drawer, .overview-modal {
+        display: none !important;
+      }
+      .deck-container, .slide-stage {
+        width: 100% !important;
+        height: auto !important;
+        display: block !important;
+      }
+      .slide {
+        position: relative !important;
+        page-break-after: always !important;
+        opacity: 1 !important;
+        transform: none !important;
+        margin-bottom: 20px !important;
+        height: 100vh !important;
+        width: 100vw !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ambient-glow"></div>
+
+  <!-- Progress Bar -->
+  <div class="progress-bar-container">
+    <div class="progress-bar-fill" id="progressBar"></div>
+  </div>
+
+  <div class="deck-container">
+    <div class="slide-stage">
+
+      <!-- ==================== SLIDE 1: COVER ==================== -->
+      <div class="slide active" data-slide="1">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge gold">VFOSSA • OLP 2026 KHỐI PHẦN MỀM NGUỒN MỞ</span>
+            <h1 class="slide-title" style="font-size: 2.8rem; margin-top: 10px;">OpenDXOS</h1>
+            <p class="slide-subtitle" style="font-size: 1.35rem; color: #e2e8f0; margin-top: 6px;">
+              Hệ điều hành Chuyển đổi số Doanh nghiệp Thương mại Điện tử Thế hệ mới
+            </p>
+          </div>
+          <div class="slide-number-watermark">01</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-3" style="align-items: stretch;">
+            <div class="card highlight">
+              <div class="card-icon">🏛️</div>
+              <div class="card-title">Kiến trúc 3 Tầng Mở</div>
+              <p class="card-desc">Hiện thực hóa chuẩn mực đề thi OLP 2026: Tách bạch tầng Kỹ thuật số cốt lõi, Nền tảng quản trị và Đổi mới sáng tạo.</p>
+              <div style="margin-top: auto;"><span class="pill">3-Tier Open Model</span></div>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon gold">🤖</div>
+              <div class="card-title">Multi-Agent Workforce</div>
+              <p class="card-desc">Lực lượng nhân sự số chuyên môn hóa sâu: AI CEO điều phối, Marketing đa kênh, CSKH bán hàng và Kho vận xAI.</p>
+              <div style="margin-top: auto;"><span class="pill">Human-in-the-Loop</span></div>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon green">🌐</div>
+              <div class="card-title">Đột phá GEO & Nguồn Mở</div>
+              <p class="card-desc">Tối ưu hóa công cụ tìm kiếm tạo sinh (GEO) cho Storefront. 100% bản quyền chuẩn Apache-2.0, không phụ thuộc SaaS độc quyền.</p>
+              <div style="margin-top: auto;"><span class="pill">Apache-2.0 • Zero Vendor Lock-in</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner">
+          <span>🚀 <strong>Mã nguồn chính thức:</strong> <code style="color: var(--cyan);">github.com/gagaduy/OpenDXOS</code></span>
+          <span>📅 Kỳ thi Olympic Tin học Sinh viên Việt Nam 2026</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 2: PROBLEM ==================== -->
+      <div class="slide" data-slide="2">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge">BỐI CẢNH & BÀI TOÁN THỰC TIỄN</span>
+            <h2 class="slide-title">Nỗi Đau Phân Mảnh Số Trong Doanh Nghiệp TMĐT</h2>
+            <p class="slide-subtitle">Sự bế tắc của các giải pháp đóng và công cụ rời rạc đối với hàng trăm ngàn doanh nghiệp SME</p>
+          </div>
+          <div class="slide-number-watermark">02</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-4">
+            <div class="card">
+              <div class="card-icon">🏝️</div>
+              <div class="card-title">Ốc Đảo Dữ Liệu</div>
+              <p class="card-desc">ERP, CRM, kho hàng, marketing và chat CSKH nằm trên các nền tảng riêng rẽ. Không có nguồn sự thật duy nhất (Single Source of Truth).</p>
+            </div>
+
+            <div class="card">
+              <div class="card-icon gold">💸</div>
+              <div class="card-title">Gánh Nặng Phí SaaS</div>
+              <p class="card-desc">Chi phí thuê bao hàng tháng cho hàng loạt phần mềm đóng ngốn sạch biên lợi nhuận của doanh nghiệp vừa và nhỏ.</p>
+            </div>
+
+            <div class="card">
+              <div class="card-icon">⚠️</div>
+              <div class="card-title">Phụ Thuộc Thủ Công</div>
+              <p class="card-desc">Nhân viên mất hàng giờ copy-paste số liệu giữa các phần mềm. Dễ sai sót và chậm trễ khi phát sinh lượng đơn đột biến.</p>
+            </div>
+
+            <div class="card">
+              <div class="card-icon purple">🔒</div>
+              <div class="card-title">Khóa Chặt Công Nghệ</div>
+              <p class="card-desc">Vendor Lock-in khiến doanh nghiệp không thể can thiệp mã nguồn hay tùy biến quy trình theo văn hóa kinh doanh đặc thù.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner">
+          <span>💡 <strong>Nhu cầu cấp thiết:</strong> Doanh nghiệp cần một Hệ điều hành số All-in-one có khả năng tự chủ 100% dữ liệu và hạ tầng với chi phí bản quyền 0 đồng.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 3: MISSION & VISION ==================== -->
+      <div class="slide" data-slide="3">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge green">TẦM NHÌN & SỨ MỆNH</span>
+            <h2 class="slide-title">OpenDXOS: Nền Tảng Chuyển Đổi Số Toàn Diện</h2>
+            <p class="slide-subtitle">Hệ điều hành mở giúp số hóa toàn bộ vòng đời kinh doanh và kích hoạt lực lượng lao động số</p>
+          </div>
+          <div class="slide-number-watermark">03</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-3">
+            <div class="card highlight">
+              <div class="card-icon green">🎯</div>
+              <div class="card-title">1. Chuẩn Hóa Kiến Trúc</div>
+              <ul class="card-list green">
+                <li>Bám sát tuyệt đối mô hình 3 tầng phân rã của đề thi OLP 2026.</li>
+                <li>Tách bạch rõ rệt giữa Hạ tầng, Quản trị và Lớp Trí tuệ AI.</li>
+                <li>Clean Architecture: Dễ dàng bảo trì, mở rộng và tích hợp thêm module mới.</li>
+              </ul>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon">🛡️</div>
+              <div class="card-title">2. Tự Chủ Công Nghệ</div>
+              <ul class="card-list">
+                <li>100% Nguồn mở chuẩn OSI (Apache-2.0).</li>
+                <li>Doanh nghiệp hoàn toàn làm chủ cơ sở dữ liệu và hạ tầng máy chủ.</li>
+                <li>Tự do triển khai On-Premise hoặc Cloud tùy theo năng lực tài chính.</li>
+              </ul>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon gold">⚡</div>
+              <div class="card-title">3. Động Lực AI Thực Chất</div>
+              <ul class="card-list gold">
+                <li>Nâng cấp từ kịch bản kéo thả tĩnh sang đội ngũ Multi-Agent cộng tác.</li>
+                <li>Hỗ trợ con người ra quyết định, không thay thế tùy tiện (Human-in-the-Loop).</li>
+                <li>Ứng dụng xAI minh bạch và tối ưu hóa hiện diện số qua công nghệ GEO.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner green">
+          <span>✨ <strong>Tuyên ngôn cốt lõi:</strong> Doanh nghiệp là trung tâm của hệ thống, không phải chatbot hay kịch bản tự động rời rạc.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 4: ARCHITECTURE OVERVIEW ==================== -->
+      <div class="slide" data-slide="4">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge">KIẾN TRÚC HỆ THỐNG</span>
+            <h2 class="slide-title">Mô Hình Kiến Trúc 3 Tầng Chuẩn Hóa OLP 2026</h2>
+            <p class="slide-subtitle">Phân tách trách nhiệm mạch lạc theo nguyên lý High Cohesion & Loose Coupling</p>
+          </div>
+          <div class="slide-number-watermark">04</div>
+        </div>
+
+        <div class="slide-body">
+          <div style="display: flex; flex-direction: column; gap: 16px; height: 100%; justify-content: space-around;">
+            
+            <!-- Tier 3 -->
+            <div class="card" style="border-left: 6px solid var(--violet); padding: 16px 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="card-title" style="color: var(--violet);"><span class="pill" style="color: var(--violet);">TẦNG 3</span> Lực Lượng Nhân Sự Số & Đột Phá Đổi Mới (Agentic Workforce & Innovation)</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">Python FastAPI • Multi-Agent Runtime • GEO Engine</div>
+              </div>
+              <p class="card-desc" style="margin-top: 6px;">AI CEO Orchestrator • Marketing Omnichannel & Video AI • CSKH & Social Selling • Tồn kho xAI • Bộ tối ưu hóa GEO</p>
+            </div>
+
+            <!-- Tier 2 -->
+            <div class="card" style="border-left: 6px solid var(--cyan); padding: 16px 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="card-title" style="color: var(--cyan);"><span class="pill" style="color: var(--cyan);">TẦNG 2</span> Nền Tảng Quản Trị & Nghiệp Vụ Thương Mại (Governance & Commerce Platform)</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">Modular Monolith TypeScript • React Console & Storefront</div>
+              </div>
+              <p class="card-desc" style="margin-top: 6px;">Quản lý Danh mục (Catalog) • Khóa giữ tồn kho (Reservation) • CRM Khách hàng • Vòng đời Đơn hàng • Thanh toán SePay VietQR tự động</p>
+            </div>
+
+            <!-- Tier 1 -->
+            <div class="card" style="border-left: 6px solid var(--emerald); padding: 16px 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="card-title" style="color: var(--emerald);"><span class="pill" style="color: var(--emerald);">TẦNG 1</span> Nền Tảng Kỹ Thuật Số Cốt Lõi (Core Technical Services)</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">Docker Compose • Keycloak OIDC • PostgreSQL 16 • Redis • MinIO</div>
+              </div>
+              <p class="card-desc" style="margin-top: 6px;">Xác thực tập trung SSO/IAM • Cơ sở dữ liệu quan hệ ACID • Bộ nhớ đệm phân tán • Lưu trữ tệp tương thích S3 • API Gateway</p>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="slide-footer-banner">
+          <span>⚙️ <strong>Quy tắc luồng phụ thuộc:</strong> Tầng trên phụ thuộc vào hợp đồng của tầng dưới qua API chuẩn mực, không bao giờ có chiều ngược lại.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 5: TIER 1 CORE INFRA ==================== -->
+      <div class="slide" data-slide="5">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge green">TẦNG 1: CORE SERVICES</span>
+            <h2 class="slide-title">Hạ Tầng Kỹ Thuật Số Cốt Lõi & Bảo Mật</h2>
+            <p class="slide-subtitle">Vận hành ổn định, sẵn sàng mở rộng và đóng gói triển khai chỉ với một lệnh duy nhất</p>
+          </div>
+          <div class="slide-number-watermark">05</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-3">
+            <div class="card">
+              <div class="card-icon green">🔑</div>
+              <div class="card-title">Keycloak IAM / SSO</div>
+              <ul class="card-list green">
+                <li>Chuẩn hóa OpenID Connect & OAuth2.</li>
+                <li>Đăng nhập một lần (Single Sign-On).</li>
+                <li>Phân quyền truy cập theo vai trò (RBAC): Admin, Staff, Agent, Khách hàng.</li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <div class="card-icon green">🐘</div>
+              <div class="card-title">PostgreSQL 16 & Redis</div>
+              <ul class="card-list green">
+                <li>Cơ sở dữ liệu quan hệ ACID vững chắc.</li>
+                <li>Bộ nhớ đệm Redis In-Memory tốc độ cao.</li>
+                <li>Tối ưu hóa thời gian phản hồi API và khóa bản ghi chống xung đột.</li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <div class="card-icon green">📦</div>
+              <div class="card-title">MinIO & Nginx Gateway</div>
+              <ul class="card-list green">
+                <li>MinIO S3 tương thích lưu trữ đa phương tiện.</li>
+                <li>Nginx Reverse Proxy bảo vệ toàn bộ API nội bộ.</li>
+                <li>Triển khai đồng bộ qua <code class="pill">docker compose up -d</code>.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner green">
+          <span>🔒 <strong>An toàn dữ liệu:</strong> Mọi kết nối đều được kiểm soát danh tính và kiểm toán nhật ký (Audit Log) tại cấp độ hạ tầng.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 6: TIER 2 COMMERCE CORE ==================== -->
+      <div class="slide" data-slide="6">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge">TẦNG 2: GOVERNANCE & COMMERCE</span>
+            <h2 class="slide-title">Lõi Nghiệp Vụ Thương Mại & Vận Hành Vững Chắc</h2>
+            <p class="slide-subtitle">Quản trị toàn diện vòng đời kinh doanh từ kho hàng, thanh toán đến chăm sóc khách hàng</p>
+          </div>
+          <div class="slide-number-watermark">06</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-4">
+            <div class="card">
+              <div class="card-icon">📦</div>
+              <div class="card-title">Catalog & Kho Hàng</div>
+              <p class="card-desc">Sản phẩm đa biến thể. Cơ chế khóa giữ tồn kho (Reservation) ngăn ngừa bán vượt số lượng thực tế khi có sự kiện khuyến mãi lớn.</p>
+            </div>
+
+            <div class="card">
+              <div class="card-icon">👥</div>
+              <div class="card-title">Khách Hàng & CRM</div>
+              <p class="card-desc">Hồ sơ khách hàng 360 độ: lịch sử đơn hàng, hành vi mua sắm, tích điểm thành viên và phân khúc nhóm khách hàng tiềm năng.</p>
+            </div>
+
+            <div class="card">
+              <div class="card-icon gold">💳</div>
+              <div class="card-title">Thanh Toán SePay VietQR</div>
+              <p class="card-desc">Tự động hóa chuyển khoản ngân hàng không mất phí gateway quốc tế. Xác nhận đơn và cập nhật trạng thái tức thời qua Webhook.</p>
+            </div>
+
+            <div class="card">
+              <div class="card-icon green">🖥️</div>
+              <div class="card-title">Console & Storefront</div>
+              <p class="card-desc">Console vận hành trực quan cho nhân viên công ty và Cửa hàng trực tuyến tốc độ cao, chuẩn UX/UI cho khách hàng mua sắm.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner">
+          <span>📊 <strong>Tính toàn vẹn:</strong> Logic giá, chính sách khuyến mãi và tính toán đơn hàng được tính toán và bảo vệ 100% tại backend.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 7: TIER 3 MULTI-AGENT PARADIGM ==================== -->
+      <div class="slide" data-slide="7">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge purple">TẦNG 3: BƯỚC CHUYỂN DỊCH AI</span>
+            <h2 class="slide-title">Từ Workflow Kéo Thả Cứng Sang Multi-Agent Thực Chất</h2>
+            <p class="slide-subtitle">Đột phá giải phóng sức lao động thông qua Đội ngũ Nhân sự số chuyên môn hóa và phối hợp thông minh</p>
+          </div>
+          <div class="slide-number-watermark">07</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-title" style="color: #ef4444;">❌ Hạn Chế Của Workflow Cũ (iPaaS Kéo Thả)</div>
+              <ul class="card-list" style="color: #9ca3af;">
+                <li>Kịch bản rẽ nhánh IF-THEN cứng nhắc, dễ gãy khi dữ liệu phi cấu trúc thay đổi.</li>
+                <li>Đòi hỏi người dùng phải tự vẽ và bảo trì hàng chục khối nối phức tạp.</li>
+                <li>Thiếu khả năng suy luận, hiểu ngữ cảnh và thích ứng linh hoạt theo thời gian thực.</li>
+              </ul>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-title" style="color: var(--emerald);">✅ Ưu Thế Của Multi-Agent Team (OpenDXOS)</div>
+              <ul class="card-list green">
+                <li>Được giao mục tiêu rõ ràng và tự chủ lập kế hoạch thực thi công việc.</li>
+                <li>Mỗi Agent sở hữu bộ công cụ (Tools) và tri thức chuyên biệt cho từng phòng ban.</li>
+                <li><strong>Cơ chế Human-in-the-Loop (HITL):</strong> Mọi quyết định xuất tiền, giảm giá sốc hay nhập kho lớn đều bắt buộc phải có người duyệt.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner purple">
+          <span>🤝 <strong>Môi trường giao tiếp:</strong> Nhân viên trao đổi trực tiếp với Agent qua kênh nội bộ (Telegram, Zalo công ty) hoặc Console điều hành.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 8: AI CEO ORCHESTRATOR ==================== -->
+      <div class="slide" data-slide="8">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge purple">PHÒNG BAN ĐIỀU HÀNH</span>
+            <h2 class="slide-title">AI CEO Orchestrator: "Tổng Chỉ Huy" Chiến Lược</h2>
+            <p class="slide-subtitle">Bộ não điều phối tổng thể, phân rã mục tiêu và giám sát nhịp đập kinh doanh theo thời gian thực</p>
+          </div>
+          <div class="slide-number-watermark">08</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-4">
+            <div class="card highlight">
+              <div class="card-icon purple">🎯</div>
+              <div class="card-title">Phân Rã Mục Tiêu</div>
+              <p class="card-desc">Tiếp nhận chỉ đạo chiến lược cấp cao từ Giám đốc và tự động bẻ nhỏ thành nhiệm vụ cụ thể cho từng phòng ban chuyên trách.</p>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon purple">📈</div>
+              <div class="card-title">Giám Sát Sức Khỏe</div>
+              <p class="card-desc">Liên tục theo dõi các chỉ số KPI then chốt: doanh thu ngày, tồn kho nguy hiểm, tỷ lệ chuyển đổi và chi phí quảng cáo.</p>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon purple">🚨</div>
+              <div class="card-title">Phát Hiện Bất Thường</div>
+              <p class="card-desc">Cảnh báo sớm khi phát hiện sụt giảm doanh thu đột ngột, lượng hủy đơn tăng cao hoặc tồn kho có nguy cơ bị đứt gãy.</p>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon purple">📑</div>
+              <div class="card-title">Báo Cáo Điều Hành</div>
+              <p class="card-desc">Tự động tổng hợp báo cáo kinh doanh cô đọng hàng ngày/tuần, hỗ trợ lãnh đạo ra quyết định nhanh chóng và chính xác.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner purple">
+          <span>👑 <strong>Vai trò then chốt:</strong> Kết nối thông suốt giữa tầm nhìn của ban lãnh đạo và hành động thực thi của các phòng ban bên dưới.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 9: MARKETING & VIDEO AGENT ==================== -->
+      <div class="slide" data-slide="9">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge">PHÒNG MARKETING</span>
+            <h2 class="slide-title">Omnichannel AI & Kịch Bản Video Marketing</h2>
+            <p class="slide-subtitle">Tự động hóa quảng bá đa kênh với nội dung bán hàng có độ thuyết phục cao và kịch bản bắt trend</p>
+          </div>
+          <div class="slide-number-watermark">09</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-3">
+            <div class="card">
+              <div class="card-icon">📱</div>
+              <div class="card-title">Đa Kênh Mạng Xã Hội</div>
+              <ul class="card-list">
+                <li>Kết nối trực tiếp tài khoản TikTok, YouTube, Instagram và Facebook.</li>
+                <li>Lên lịch đăng bài thông minh theo khung giờ vàng tương tác cao.</li>
+                <li>Đồng bộ thông điệp chiến dịch quảng cáo xuyên suốt các kênh.</li>
+              </ul>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon gold">✍️</div>
+              <div class="card-title">Copywriting Thuyết Phục Cao</div>
+              <ul class="card-list gold">
+                <li>Không tạo nội dung chung chung: Phân tích sâu tâm lý khách hàng (Persona).</li>
+                <li>Viết nội dung bán hàng dựa trên công thức AIDA & PAS kinh điển.</li>
+                <li>Tạo các biến thể nội dung để thử nghiệm A/B Testing liên tục.</li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <div class="card-icon">🎬</div>
+              <div class="card-title">Sản Xuất Video Ngắn</div>
+              <ul class="card-list">
+                <li>Tạo Storyboard và Hook 3 giây đầu giữ chân người xem video.</li>
+                <li>Xuất kịch bản chi tiết cho TikTok Video, YouTube Shorts, Reels.</li>
+                <li>Gợi ý bối cảnh quay, âm nhạc thịnh hành và lời thoại tự nhiên.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner">
+          <span>🚀 <strong>Hiệu quả:</strong> Rút ngắn thời gian lên chiến dịch marketing từ 3 ngày xuống còn 15 phút, tăng tỷ lệ chuyển đổi khách hàng tiềm năng.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 10: CSKH & SOCIAL SELLING AGENT ==================== -->
+      <div class="slide" data-slide="10">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge green">PHÒNG CHĂM SÓC KHÁCH HÀNG</span>
+            <h2 class="slide-title">CSKH Đa Kênh & Social Selling Thông Minh</h2>
+            <p class="slide-subtitle">Biến tương tác trên mạng xã hội thành doanh số và chuyển giao mượt mà cho con người khi cần thiết</p>
+          </div>
+          <div class="slide-number-watermark">10</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-4">
+            <div class="card">
+              <div class="card-icon green">💬</div>
+              <div class="card-title">Phản Hồi Tức Thì 24/7</div>
+              <p class="card-desc">Tự động trả lời tin nhắn, bình luận trên các kênh với phong cách tự nhiên, đúng ngữ cảnh sản phẩm, không máy móc.</p>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon gold">🎯</div>
+              <div class="card-title">Lead Scoring Chuẩn Xác</div>
+              <p class="card-desc">Phân tích ý định mua hàng để xếp hạng khách tiềm năng (Nóng - Ấm - Lạnh), ưu tiên chăm sóc khách hàng có nhu cầu cao.</p>
+            </div>
+
+            <div class="card">
+              <div class="card-icon green">🛒</div>
+              <div class="card-title">Tư Vấn & Chốt Đơn</div>
+              <p class="card-desc">Gợi ý sản phẩm phù hợp ngân sách, kiểm tra tồn kho theo thời gian thực và tự động tạo đơn hàng ngay trong cuộc trò chuyện.</p>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon">🤝</div>
+              <div class="card-title">Bàn Giao Cho Con Người</div>
+              <p class="card-desc">Khi gặp phản ánh khiếu nại gay gắt hoặc khách hàng VIP, Agent tự động chuyển giao toàn bộ ngữ cảnh cho nhân viên trực tiếp xử lý.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner green">
+          <span>⚡ <strong>Tốc độ chuyển đổi:</strong> Giảm thời gian phản hồi khách hàng từ hàng chục phút xuống dưới 3 giây, giữ chân khách ngay tại thời điểm có cảm xúc mua sắm.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 11: INVENTORY & XAI AGENT ==================== -->
+      <div class="slide" data-slide="11">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge gold">PHÒNG KHO VẬN & CUNG ỨNG</span>
+            <h2 class="slide-title">Chiến Lược Tồn Kho Thông Minh & Trí Tuệ Nhân Tạo xAI</h2>
+            <p class="slide-subtitle">Dự báo nhu cầu mùa vụ và đưa ra đề xuất nhập hàng với lập luận minh bạch, có thể giải thích được</p>
+          </div>
+          <div class="slide-number-watermark">11</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-3">
+            <div class="card">
+              <div class="card-icon gold">📅</div>
+              <div class="card-title">Dự Báo Mùa Vụ</div>
+              <ul class="card-list gold">
+                <li>Phân tích dữ liệu lịch sử để nhận diện các đợt cao điểm mua sắm (Mùa tựu trường, Tết, Black Friday).</li>
+                <li>Tính toán xu hướng tăng trưởng theo từng nhóm mặt hàng chủ lực.</li>
+              </ul>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon green">🔍</div>
+              <div class="card-title">Explainable AI (xAI)</div>
+              <ul class="card-list green">
+                <li><strong>Không phải "hộp đen":</strong> Mọi đề xuất nhập hàng đều đi kèm chứng cứ số liệu và luận cứ rõ ràng.</li>
+                <li>Đưa ra xác suất tin cậy và phân tích rủi ro tồn ứ để thủ kho an tâm ra quyết định.</li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <div class="card-icon gold">📉</div>
+              <div class="card-title">Tối Ưu Vòng Quay Vốn</div>
+              <ul class="card-list gold">
+                <li>Tính toán điểm đặt hàng lại (Reorder Point) tối ưu.</li>
+                <li>Cảnh báo hàng chậm luân chuyển và đề xuất chương trình khuyến mãi xả hàng tồn kết hợp cùng phòng Marketing.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner gold">
+          <span>🧠 <strong>Giá trị của xAI:</strong> Giúp người quản trị hiểu rõ TẠI SAO hệ thống đề xuất nhập hàng, xây dựng niềm tin tuyệt đối giữa con người và AI.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 12: GEO INNOVATION ==================== -->
+      <div class="slide" data-slide="12">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge">ĐỘT PHÁ CÔNG NGHỆ TIÊN PHONG</span>
+            <h2 class="slide-title">GEO (Generative Engine Optimization) Cho Storefront</h2>
+            <p class="slide-subtitle">Đưa sản phẩm của doanh nghiệp lên vị trí đề xuất hàng đầu của các công cụ tìm kiếm AI thế hệ mới</p>
+          </div>
+          <div class="slide-number-watermark">12</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-icon">🌐</div>
+              <div class="card-title">Sự Dịch Chuyển Xu Hướng Tìm Kiếm</div>
+              <p class="card-desc">Người tiêu dùng thế hệ mới đang chuyển dần từ Google Search sang hỏi trực tiếp các mô hình ngôn ngữ lớn (ChatGPT, Perplexity, Gemini, Copilot):</p>
+              <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid var(--cyan); margin-top: 8px; font-style: italic;">
+                "Gợi ý cho tôi bộ phụ kiện học tập chất lượng nhất dưới 500k cho học sinh cấp 3?"
+              </div>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon green">🚀</div>
+              <div class="card-title">Giải Pháp GEO Của OpenDXOS</div>
+              <ul class="card-list green">
+                <li><strong>Semantic Entity Graph:</strong> Cấu trúc dữ liệu thực thể chuẩn hóa Schema.org JSON-LD sâu sắc trên toàn bộ Storefront.</li>
+                <li><strong>Cung cấp ngữ cảnh phong phú:</strong> Định nghĩa thông số, nguồn gốc xuất xứ, so sánh tính năng và đánh giá đã xác thực.</li>
+                <li><strong>Kết quả:</strong> Khi AI tổng hợp câu trả lời, sản phẩm và liên kết của doanh nghiệp tự động được chọn làm trích dẫn nguồn uy tín hàng đầu.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner">
+          <span>🌟 <strong>Lợi thế cạnh tranh:</strong> Đón đầu làn sóng tìm kiếm bằng AI ngay từ hôm nay thay vì chỉ phụ thuộc vào SEO từ khóa truyền thống.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 13: OPEN SOURCE READINESS ==================== -->
+      <div class="slide" data-slide="13">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge green">TIÊU CHÍ OLP 2026</span>
+            <h2 class="slide-title">Tính Sẵn Sàng Nguồn Mở & Đáp Ứng Chuẩn VFOSSA</h2>
+            <p class="slide-subtitle">Tuân thủ nghiêm ngặt quy định đề thi về giấy phép, khả năng build từ mã nguồn và tính minh bạch</p>
+          </div>
+          <div class="slide-number-watermark">13</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-4">
+            <div class="card green-border">
+              <div class="card-icon green">📜</div>
+              <div class="card-title">100% Giấy Phép OSI</div>
+              <p class="card-desc">Mã nguồn sử dụng giấy phép <strong>Apache-2.0</strong> thuần khiết. Đầy đủ tập tin LICENSE và khai báo SPDX-Header trên mọi tệp mã nguồn.</p>
+            </div>
+
+            <div class="card green-border">
+              <div class="card-icon green">🚫</div>
+              <div class="card-title">Zero Vendor Lock-in</div>
+              <p class="card-desc">Không phụ thuộc bất kỳ SaaS trả phí độc quyền nào. Doanh nghiệp có thể tự dựng và làm chủ hoàn toàn trên máy chủ của mình.</p>
+            </div>
+
+            <div class="card green-border">
+              <div class="card-icon green">🏗️</div>
+              <div class="card-title">Monorepo Sạch Sẽ</div>
+              <p class="card-desc">Cấu trúc Monorepo chuẩn mực, tài liệu hướng dẫn cài đặt chi tiết (README, Build from Source), không chứa tệp rác hay thư viện bị vendor.</p>
+            </div>
+
+            <div class="card green-border">
+              <div class="card-icon green">✅</div>
+              <div class="card-title">Bộ Kịch Bản PoF</div>
+              <p class="card-desc">Kịch bản chứng minh tính năng (Proof of Functionality) đầy đủ, kiểm chứng được tất cả các luồng nghiệp vụ cốt lõi.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner green">
+          <span>🏆 <strong>Cam kết chất lượng:</strong> Mã nguồn mở thực chất, sẵn sàng để cộng đồng đóng góp và doanh nghiệp ứng dụng thực tế ngay lập tức.</span>
+        </div>
+      </div>
+
+      <!-- ==================== SLIDE 14: ROADMAP & CONCLUSION ==================== -->
+      <div class="slide" data-slide="14">
+        <div class="slide-header">
+          <div class="slide-header-left">
+            <span class="category-badge gold">TỔNG KẾT & LỘ TRÌNH</span>
+            <h2 class="slide-title">Lộ Trình Phát Triển & Khẳng Định Giá Trị Thực Tiễn</h2>
+            <p class="slide-subtitle">Sẵn sàng đồng hành cùng quá trình chuyển đổi số của cộng đồng doanh nghiệp Việt Nam</p>
+          </div>
+          <div class="slide-number-watermark">14</div>
+        </div>
+
+        <div class="slide-body">
+          <div class="grid-3">
+            <div class="card highlight">
+              <div class="card-icon green">🎯</div>
+              <div class="card-title">Tính Ứng Dụng Cao</div>
+              <p class="card-desc">Không dừng lại ở bài thi học thuật, OpenDXOS giải quyết trực diện bài toán sống còn của doanh nghiệp thương mại điện tử: chi phí, dữ liệu và nhân lực.</p>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon">🚀</div>
+              <div class="card-title">Lộ Trình Tương Lai</div>
+              <ul class="card-list">
+                <li>Phát triển kho Plugin kết nối các sàn TMĐT lớn (Shopee, Lazada, TikTok Shop).</li>
+                <li>Tích hợp các mô hình ngôn ngữ lớn nguồn mở thuần Việt chạy cục bộ (PhoGPT, Vistral).</li>
+                <li>Mở rộng mạng lưới đóng góp mã nguồn mở từ cộng đồng lập trình viên Việt Nam.</li>
+              </ul>
+            </div>
+
+            <div class="card highlight">
+              <div class="card-icon gold">🙏</div>
+              <div class="card-title">Lời Cảm Ơn</div>
+              <p class="card-desc">Trân trọng cảm ơn Ban Tổ chức Olympic Tin học Sinh viên Việt Nam, Hiệp hội VFOSSA và Hội đồng Giám khảo đã tạo ra một sân chơi công nghệ ý nghĩa và bổ ích!</p>
+              <div style="margin-top: auto; font-weight: 700; color: var(--amber);">OpenDXOS Team • OLP 2026</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="slide-footer-banner gold">
+          <span>🌟 <strong>Cùng nhau kiến tạo:</strong> Hệ điều hành chuyển đổi số mở, an toàn và thông minh cho doanh nghiệp Việt!</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Bottom Control Bar -->
+  <div class="control-bar">
+    <button class="ctrl-btn" id="prevBtn" title="Slide trước (Phím Mũi tên Trái / PageUp)">◀</button>
+    <div class="slide-counter" id="slideCounter">01 / 14</div>
+    <button class="ctrl-btn" id="nextBtn" title="Slide tiếp (Phím Mũi tên Phải / Phím Cách)">▶</button>
+    <div class="divider"></div>
+    <button class="ctrl-btn" id="overviewBtn" title="Xem tổng quan tất cả slide (Phím O / Esc)">⊞</button>
+    <button class="ctrl-btn" id="notesBtn" title="Mở gợi ý kịch bản thuyết trình (Phím N)">📝</button>
+    <button class="ctrl-btn" id="fullscreenBtn" title="Bật/Tắt Toàn màn hình (Phím F)">⛶</button>
+  </div>
+
+  <!-- Speaker Notes Drawer -->
+  <div class="notes-drawer" id="notesDrawer">
+    <div class="notes-header">
+      <div class="notes-title">
+        <span>🎙️</span>
+        <span id="notesSlideTitle">Kịch bản thuyết trình - Slide 01</span>
+      </div>
+      <button class="ctrl-btn" id="closeNotesBtn" style="width: 28px; height: 28px;">✕</button>
+    </div>
+    <div class="notes-body" id="notesContent">
+      Đang tải gợi ý thuyết trình...
+    </div>
+  </div>
+
+  <!-- Overview Modal Grid -->
+  <div class="overview-modal" id="overviewModal">
+    <div class="overview-header">
+      <h2 style="font-size: 1.5rem; font-weight: 800; color: #fff;">Tổng Quan Toàn Bộ 14 Slide (Bấm vào để chuyển ngay)</h2>
+      <button class="ctrl-btn" id="closeOverviewBtn" style="width: 36px; height: 36px; font-size: 1.2rem;">✕</button>
+    </div>
+    <div class="overview-grid" id="overviewGrid">
+      <!-- Generated via JS -->
+    </div>
+  </div>
+
+  <script>
+    // Speaker notes database for all 14 slides
+    const speakerNotes = {
+      1: "Kính chào Ban giám khảo và quý vị đại biểu. Chúng tôi là nhóm tác giả của dự án OpenDXOS. Hôm nay, chúng tôi mang đến cuộc thi OLP 2026 giải pháp 'Hệ điều hành Chuyển đổi số Doanh nghiệp Thương mại Điện tử Thế hệ mới'. Dự án được xây dựng 100% bằng mã nguồn mở với giấy phép Apache-2.0, bám sát mô hình kiến trúc 3 tầng của đề thi VFOSSA, đồng thời tích hợp lực lượng nhân sự số Multi-Agent thực chất và công nghệ GEO đột phá.",
+      2: "Thưa quý vị, xuất phát điểm của OpenDXOS là nỗi đau rất lớn của hàng trăm ngàn doanh nghiệp TMĐT vừa và nhỏ tại Việt Nam hiện nay: Các phần mềm hiện hữu quá phân mảnh. CRM, ERP, kho và marketing chạy rời rạc tạo thành các ốc đảo dữ liệu. Doanh nghiệp bị vắt kiệt bởi phí thuê bao SaaS hàng tháng, trong khi nhân viên phải copy-paste thủ công giữa các ứng dụng và hoàn toàn bị khóa chặt công nghệ (Vendor Lock-in).",
+      3: "Vì vậy, sứ mệnh của OpenDXOS là mang đến một nền tảng All-in-One hoàn chỉnh. Chúng tôi giải quyết triệt để 3 bài toán: Thứ nhất, chuẩn hóa kiến trúc 3 tầng theo đúng đề thi OLP 2026. Thứ hai, trao lại toàn bộ quyền tự chủ công nghệ và dữ liệu cho doanh nghiệp với chi phí bản quyền 0 đồng. Thứ ba, biến AI từ những kịch bản cứng nhắc thành động lực tăng trưởng thực chất.",
+      4: "Về kiến trúc kỹ thuật, OpenDXOS được thiết kế nghiêm ngặt theo mô hình 3 tầng phân rã: Tầng 1 là Nền tảng Kỹ thuật số Cốt lõi cung cấp danh tính, dữ liệu và bảo mật. Tầng 2 là Lõi Nghiệp vụ Thương mại với Modular Monolith quản trị đơn hàng, tồn kho và thanh toán. Tầng 3 là Lực lượng Nhân sự số Multi-Agent và bộ tối ưu hóa GEO. Mọi luồng phụ thuộc đều hướng vào trong, bảo đảm tính độc lập và linh hoạt cao nhất.",
+      5: "Ở Tầng 1, hệ thống tích hợp Keycloak IAM làm nền tảng định danh tập trung SSO chuẩn OpenID Connect và phân quyền RBAC phân cấp. Toàn bộ cơ sở dữ liệu sử dụng PostgreSQL 16 ACID-compliant, bộ đệm Redis In-Memory và MinIO lưu trữ đối tượng tương thích chuẩn AWS S3. Điểm đặc biệt là toàn bộ hạ tầng này được đóng gói hoàn hảo trong Docker Compose, cho phép bất kỳ ai cũng có thể build và chạy toàn bộ hệ thống từ mã nguồn chỉ với 1 lệnh duy nhất.",
+      6: "Bước lên Tầng 2, đây là trái tim của hệ thống thương mại. Chúng tôi xây dựng đầy đủ các module: Quản trị danh mục sản phẩm đa biến thể; Cơ chế khóa giữ tồn kho (Reservation) triệt tiêu tình trạng bán quá số lượng thực tế khi có khuyến mãi; Hệ thống CRM theo dõi hồ sơ khách hàng 360 độ; và đặc biệt là tích hợp cổng thanh toán SePay VietQR tự động đối soát chuyển khoản ngân hàng qua Webhook theo thời gian thực mà không phát sinh phí cổng quốc tế.",
+      7: "Bước lên Tầng 3, chúng tôi tạo ra sự khác biệt lớn nhất: Chúng tôi từ bỏ mô hình kéo thả workflow cứng nhắc (iPaaS) vốn rất dễ gãy trước các dữ liệu phi cấu trúc. Thay vào đó, OpenDXOS thiết lập một Đội ngũ Nhân sự số Multi-Agent thực chất. Mỗi Agent là một thực thể thông minh có vai trò và công cụ chuyên biệt, hoạt động dưới nguyên tắc an toàn cao nhất là Human-in-the-Loop: Mọi quyết định trọng yếu về tài chính hay xuất kho lớn bắt buộc phải có sự phê duyệt của con người.",
+      8: "Đứng đầu đội ngũ nhân sự số là AI CEO Orchestrator. Đây là 'bộ não' chiến lược của doanh nghiệp: Khi Giám đốc đưa ra một mục tiêu kinh doanh cấp cao, AI CEO sẽ phân rã mục tiêu đó thành các nhiệm vụ cụ thể cho từng phòng ban. Đồng thời, AI CEO giám sát sức khỏe toàn diện của công ty 24/7, phát hiện sớm các dấu hiệu bất thường về doanh thu hay khiếu nại để cảnh báo kịp thời.",
+      9: "Phòng ban thứ hai là Marketing Omnichannel & Video AI. Khác với các công cụ tạo nội dung thông thường, Agent của chúng tôi phân tích sâu insight khách hàng để viết các bài đăng có độ thuyết phục cao trên đa nền tảng TikTok, YouTube, Instagram và Facebook. Đặc biệt, Agent tự động thiết kế kịch bản video ngắn (Hooks 3 giây, Storyboard) chuẩn định dạng TikTok/Reels để giúp doanh nghiệp bắt kịp xu hướng mua sắm video hiện đại.",
+      10: "Phòng ban thứ ba là CSKH & Social Selling. Agent túc trực 24/7 trên các kênh mạng xã hội, phản hồi khách hàng ngay lập tức dưới 3 giây. Không chỉ dừng lại ở hỏi đáp thông thường, Agent còn có tính năng Lead Scoring để phân loại khách tiềm năng, tự động tư vấn sản phẩm và tạo đơn hàng. Khi gặp các tình huống nhạy cảm hoặc khiếu nại gay gắt, hệ thống sẽ tự động chuyển giao toàn bộ ngữ cảnh cho nhân viên con người can thiệp ngay lập tức.",
+      11: "Phòng ban thứ tư là Quản lý Kho vận & Cung ứng với điểm nhấn là Explainable AI (xAI). Agent có khả năng phân tích dữ liệu mùa vụ (như mùa tựu trường, Tết) để dự báo nhu cầu và đề xuất kế hoạch nhập kho. Quan trọng nhất, đây không phải là AI 'hộp đen': Agent giải thích cặn kẽ TẠI SAO lại đề xuất nhập mặt hàng này, dựa trên chứng cứ dữ liệu lịch sử nào, giúp người quản trị hoàn toàn tin tưởng khi phê duyệt.",
+      12: "Một đột phá công nghệ khác tại Storefront của OpenDXOS là GEO (Generative Engine Optimization). Người tiêu dùng hiện nay đang dần chuyển sang tìm kiếm gợi ý sản phẩm trực tiếp từ ChatGPT, Perplexity hay Gemini. Bằng việc xây dựng cấu trúc thực thể ngữ nghĩa Schema.org JSON-LD sâu sắc trên từng trang sản phẩm, OpenDXOS giúp sản phẩm của doanh nghiệp luôn được các AI Search Engine ưu tiên đề xuất hàng đầu khi người dùng hỏi mua.",
+      13: "Về tính sẵn sàng mã nguồn mở: OpenDXOS đáp ứng 100% tiêu chí khắt khe của OLP 2026. Toàn bộ mã nguồn phát hành dưới giấy phép Apache-2.0, có đầy đủ SPDX header trên từng file. Không phụ thuộc bất kỳ dịch vụ SaaS đóng nào. Cấu trúc monorepo phân chia trong sáng, tài liệu hóa kỹ lưỡng và cung cấp đầy đủ bộ kịch bản Proof of Functionality (PoF) để Hội đồng Giám khảo có thể kiểm chứng mọi chức năng một cách minh bạch.",
+      14: "Tổng kết lại, OpenDXOS không chỉ là một sản phẩm dự thi công nghệ, mà là một giải pháp hoàn chỉnh có thể ứng dụng và thương mại hóa ngay vào thực tiễn để đồng hành cùng các doanh nghiệp Việt Nam trên con đường chuyển đổi số. Chúng tôi xin chân thành cảm ơn Ban Giám khảo và rất mong nhận được những góp ý quý báu từ quý thầy cô!"
+    };
+
+    let currentSlide = 1;
+    const totalSlides = 14;
+
+    const slides = document.querySelectorAll('.slide');
+    const progressBar = document.getElementById('progressBar');
+    const slideCounter = document.getElementById('slideCounter');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const overviewBtn = document.getElementById('overviewBtn');
+    const notesBtn = document.getElementById('notesBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const notesDrawer = document.getElementById('notesDrawer');
+    const notesContent = document.getElementById('notesContent');
+    const notesSlideTitle = document.getElementById('notesSlideTitle');
+    const closeNotesBtn = document.getElementById('closeNotesBtn');
+    const overviewModal = document.getElementById('overviewModal');
+    const closeOverviewBtn = document.getElementById('closeOverviewBtn');
+    const overviewGrid = document.getElementById('overviewGrid');
+
+    function updateSlide(index) {
+      if (index < 1) index = 1;
+      if (index > totalSlides) index = totalSlides;
+      currentSlide = index;
+
+      slides.forEach((s, i) => {
+        if (i + 1 === currentSlide) {
+          s.classList.add('active');
+        } else {
+          s.classList.remove('active');
+        }
+      });
+
+      // Update progress bar
+      const percentage = (currentSlide / totalSlides) * 100;
+      progressBar.style.width = percentage + '%';
+
+      // Update counter
+      slideCounter.textContent = `${String(currentSlide).padStart(2, '0')} / ${String(totalSlides).padStart(2, '0')}`;
+
+      // Update speaker notes
+      notesSlideTitle.textContent = `Kịch bản thuyết trình - Slide ${String(currentSlide).padStart(2, '0')}`;
+      notesContent.textContent = speakerNotes[currentSlide] || "Không có ghi chú cho slide này.";
+
+      // Update URL hash without scroll
+      history.replaceState(null, null, `#slide-${currentSlide}`);
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) {
+        updateSlide(currentSlide + 1);
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) {
+        updateSlide(currentSlide - 1);
+      }
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => {
+          alert(`Lỗi khi vào chế độ toàn màn hình: ${err.message}`);
+        });
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+
+    function toggleNotes() {
+      notesDrawer.classList.toggle('open');
+    }
+
+    function openOverview() {
+      // Build thumbnail grid
+      overviewGrid.innerHTML = '';
+      slides.forEach((slide, idx) => {
+        const slideNum = idx + 1;
+        const title = slide.querySelector('.slide-title').textContent;
+        const thumb = document.createElement('div');
+        thumb.className = `overview-thumb ${slideNum === currentSlide ? 'current' : ''}`;
+        thumb.innerHTML = `
+          <div class="overview-thumb-num">SLIDE ${String(slideNum).padStart(2, '0')}</div>
+          <div class="overview-thumb-title">${title}</div>
+        `;
+        thumb.addEventListener('click', () => {
+          updateSlide(slideNum);
+          closeOverview();
+        });
+        overviewGrid.appendChild(thumb);
+      });
+      overviewModal.classList.add('open');
+    }
+
+    function closeOverview() {
+      overviewModal.classList.remove('open');
+    }
+
+    // Event Listeners
+    nextBtn.addEventListener('click', nextSlide);
+    prevBtn.addEventListener('click', prevSlide);
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
+    notesBtn.addEventListener('click', toggleNotes);
+    closeNotesBtn.addEventListener('click', () => notesDrawer.classList.remove('open'));
+    overviewBtn.addEventListener('click', openOverview);
+    closeOverviewBtn.addEventListener('click', closeOverview);
+
+    // Keyboard Navigation
+    document.addEventListener('keydown', (e) => {
+      // If overview is open, Escape closes it
+      if (overviewModal.classList.contains('open')) {
+        if (e.key === 'Escape' || e.key.toLowerCase() === 'o') {
+          closeOverview();
+          return;
+        }
+      }
+
+      switch (e.key) {
+        case 'ArrowRight':
+        case 'PageDown':
+        case ' ':
+        case 'Enter':
+          e.preventDefault();
+          nextSlide();
+          break;
+        case 'ArrowLeft':
+        case 'PageUp':
+        case 'Backspace':
+          e.preventDefault();
+          prevSlide();
+          break;
+        case 'Home':
+          e.preventDefault();
+          updateSlide(1);
+          break;
+        case 'End':
+          e.preventDefault();
+          updateSlide(totalSlides);
+          break;
+        case 'f':
+        case 'F':
+          toggleFullscreen();
+          break;
+        case 'n':
+        case 'N':
+          toggleNotes();
+          break;
+        case 'o':
+        case 'O':
+          if (overviewModal.classList.contains('open')) {
+            closeOverview();
+          } else {
+            openOverview();
+          }
+          break;
+        case 'Escape':
+          if (notesDrawer.classList.contains('open')) {
+            notesDrawer.classList.remove('open');
+          }
+          break;
+      }
+    });
+
+    // Touch swipe navigation
+    let touchStartX = 0;
+    let touchEndX = 0;
+    document.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, false);
+    document.addEventListener('touchend', (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      if (touchEndX < touchStartX - 50) {
+        nextSlide();
+      }
+      if (touchEndX > touchStartX + 50) {
+        prevSlide();
+      }
+    }, false);
+
+    // Check initial hash
+    const initialHash = window.location.hash;
+    if (initialHash && initialHash.startsWith('#slide-')) {
+      const num = parseInt(initialHash.replace('#slide-', ''), 10);
+      if (!isNaN(num) && num >= 1 && num <= totalSlides) {
+        updateSlide(num);
+      } else {
+        updateSlide(1);
+      }
+    } else {
+      updateSlide(1);
+    }
+  </script>
+</body>
+</html>
