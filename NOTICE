@@ -1,0 +1,10 @@
+OpenDXOS
+Copyright (c) 2026 OpenDXOS contributors.
+
+This product is developed for the Olympic Tin học Sinh viên Việt Nam (OLP) 2026 -
+Chuyên ngành Phần mềm Nguồn mở (VFOSSA).
+
+This product includes software developed under the Apache License 2.0.
+All code in this repository adheres to OSI-approved open-source licensing.
+External operational dependencies and runtime services (such as n8n) are managed
+strictly outside this repository in accordance with VFOSSA OLP regulations.
